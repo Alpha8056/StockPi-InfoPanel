@@ -1,0 +1,14 @@
+[Unit]
+Description=Kitchen Inventory (Gunicorn)
+After=network.target
+
+[Service]
+User=kinv
+WorkingDirectory=/home/kinv/kitchen_inventory
+Environment="PATH=/home/kinv/kitchen_inventory/venv/bin"
+ExecStart=/home/kinv/kitchen_inventory/venv/bin/gunicorn -w 1 -b 127.0.0.1:5000 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

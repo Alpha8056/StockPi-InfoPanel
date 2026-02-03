@@ -1,0 +1,14 @@
+[Unit]
+Description=Info Panel (homepanel) (Gunicorn)
+After=network.target
+
+[Service]
+User=kinv
+WorkingDirectory=/home/kinv/homepanel
+Environment="PATH=/home/kinv/homepanel/venv/bin"
+ExecStart=/home/kinv/homepanel/venv/bin/gunicorn -w 1 -b 127.0.0.1:5100 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
