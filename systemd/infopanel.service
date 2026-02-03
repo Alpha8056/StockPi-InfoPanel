@@ -9,6 +9,8 @@ Environment="PATH=/home/kinv/homepanel/venv/bin"
 ExecStart=/home/kinv/homepanel/venv/bin/gunicorn -w 1 -b 127.0.0.1:5100 app:app
 Restart=always
 RestartSec=3
+Environment="0a9f7a54f3b7f1e90ebbc62891e07163f4b59444282c21db6db00ca31b0dd056"
+
 
 [Install]
 WantedBy=multi-user.target

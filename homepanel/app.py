@@ -83,7 +83,8 @@ autoscan_thread = threading.Thread(target=rf_autoscan_loop, daemon=True)
 autoscan_thread.start()
 
 app = Flask(__name__)
-app.secret_key = "change-me-later"
+import os
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-change-me")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.wsgi_app = PrefixMiddleware(app.wsgi_app)
