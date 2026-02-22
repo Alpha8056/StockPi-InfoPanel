@@ -7,9 +7,17 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import alerts_db
 import weather_client
 
-# Your ZIP (67601) centroid (Hays, KS)
-HOME_LAT = 38.8782
-HOME_LON = -99.3348
+# Load home location from config.json
+import json as _json, os as _os
+_cfg_path = _os.path.join(_os.path.dirname(__file__), "config.json")
+try:
+    with open(_cfg_path) as _f:
+        _cfg = _json.load(_f)
+    HOME_LAT = float(_cfg.get("location", {}).get("lat", 38.8782))
+    HOME_LON = float(_cfg.get("location", {}).get("lon", -99.3348))
+except Exception:
+    HOME_LAT = 38.8782
+    HOME_LON = -99.3348
 
 # How close before we create a "proximity" alert
 DEFAULT_THRESHOLD_MILES = 50.0
