@@ -1615,6 +1615,13 @@ def settings_update():
         except Exception:
             cfg = {}
         cfg.setdefault('weather', {})['zip'] = new_zip
+        # Also update lat/lon for storm proximity
+        try:
+            lat, lon = weather_client.resolve_zip_to_latlon(new_zip)
+            cfg.setdefault('location', {})['lat'] = lat
+            cfg.setdefault('location', {})['lon'] = lon
+        except Exception:
+            pass
         with open(cfg_path, 'w') as f:
             _json.dump(cfg, f, indent=2)
         for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'points_*.json')):
