@@ -105,6 +105,7 @@ body{
 .systemRow{
   display:flex;
   gap:14px;
+  padding:18px;
 }
 
 .sysBtn{
@@ -115,8 +116,10 @@ body{
   background:#1b2231;
   border:1px solid var(--border);
   font-weight:800;
-  text-decoration:none;
+  cursor:pointer;
   color:var(--text);
+  font-size:16px;
+  font-family:inherit;
 }
 
 .footer{
@@ -153,8 +156,12 @@ body{
 
   <div class="card">
     <div class="systemRow">
-      <a class="sysBtn" href="/system/restart">Restart Apps</a>
-      <a class="sysBtn" href="/system/reboot">Reboot Pi</a>
+      <form method="post" action="/system/restart" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn">Restart Apps</button>
+      </form>
+      <form method="post" action="/system/reboot" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn">Reboot Pi</button>
+      </form>
     </div>
   </div>
 

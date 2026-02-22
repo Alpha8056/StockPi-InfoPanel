@@ -1524,14 +1524,13 @@ def system_menu():
 
 @app.route("/system/restart", methods=["POST"])
 def system_restart():
-    # Kill and restart gunicorn processes
-    subprocess.run(["pkill", "-f", "gunicorn.*5000"], check=False)
-    subprocess.run(["pkill", "-f", "gunicorn.*5100"], check=False)
+    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
+    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
     return "<html><body><h1>Apps restarting...</h1><p>Refresh in 5 seconds.</p><script>setTimeout(()=>location.href='/',5000)</script></body></html>"
 
 @app.route("/system/reboot", methods=["POST"])
 def system_reboot():
-    subprocess.run(["sudo", "/sbin/reboot"], check=False)
+    subprocess.run(["/usr/bin/sudo", "/sbin/reboot"], check=False)
     return "<html><body><h1>Rebooting Pi...</h1><p>This will take about 30 seconds.</p></body></html>"
 
 #@app.get("/settings")
