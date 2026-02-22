@@ -188,7 +188,6 @@ HOME_HTML = """
 <div class="wrap">
   <div class="topbar">
     <div class="title" style="margin:0">HomePanel</div>
-    <a class="btn" href="/settings">⚙️ Settings</a>
   </div>
   <div class="grid grid2">
     {% if weather_enabled %}
