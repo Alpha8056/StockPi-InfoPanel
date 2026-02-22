@@ -8,6 +8,11 @@ import rf_scan
 import alerts_db
 import threading
 import time
+import subprocess
+import settings
+from flask import Response
+
+
 
 # --- Storm proximity scheduler (runs inside the web app) ---
 import threading
@@ -83,8 +88,7 @@ autoscan_thread = threading.Thread(target=rf_autoscan_loop, daemon=True)
 autoscan_thread.start()
 
 app = Flask(__name__)
-import os
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-change-me")
+app.secret_key = "change-me-later"
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.wsgi_app = PrefixMiddleware(app.wsgi_app)
@@ -182,8 +186,13 @@ HOME_HTML = """
 </head>
 <body>
 <div class="wrap">
+  <div class="topbar">
+    <div class="title" style="margin:0">HomePanel</div>
+    <a class="btn" href="/settings">⚙️ Settings</a>
+  </div>
   <div class="grid grid2">
-    <a class="tile" href="/weather">
+    {% if weather_enabled %}
+      <a class="tile" href="/weather">
       <div class="card" style="min-height:140px">
         <div class="title">Weather ({{ wx_location }})</div>
         {% if wx_ok %}
@@ -201,6 +210,7 @@ HOME_HTML = """
         {% endif %}
       </div>
     </a>
+    {% endif %}
 
     <div class="card" style="min-height:140px">
       <div class="title">Time</div>
@@ -210,6 +220,7 @@ HOME_HTML = """
   </div>
 
     <div class="row2">
+      {% if rf_enabled %}
       <a class="tile" href="/rf">
         <div class="card">
           <div class="title">RF / Nearby Signals</div>
@@ -218,7 +229,9 @@ HOME_HTML = """
           <div class="kv"><div class="k">Last Scan</div><div class="v">{{ rf_last_scan }}</div></div>
         </div>
       </a>
+      {% endif %}
 
+      {% if network_enabled %}
       <a class="tile" href="/network">
         <div class="card">
           <div class="title">Network / Homelab</div>
@@ -227,7 +240,9 @@ HOME_HTML = """
           <div class="kv"><div class="k">Status</div><div class="v">{{ net_status }}</div></div>
         </div>
       </a>
+      {% endif %}
 
+      {% if alerts_enabled %}
       <a class="tile" href="/events">
         <div class="card">
           <div class="title">Alerts / Events</div>
@@ -236,6 +251,7 @@ HOME_HTML = """
           <div class="kv"><div class="k">Updated</div><div class="v">—</div></div>
         </div>
       </a>
+      {% endif %}
     </div>
 
 
@@ -279,7 +295,6 @@ WEATHER_HTML = """
       <div class="sub">Weather unavailable right now.</div>
     {% endif %}
   </div>
-
   <div style="height:16px"></div>
 
   <div class="card">
@@ -329,72 +344,82 @@ WEATHER_HTML = """
     {% endif %}
   </div>
 </div>
-</body></html>
-
-<div class="card">
-  
-<div class="card" style="border:1px solid rgba(245,158,11,.35);">
-  <div class="title">⚠ Storm Proximity</div>
-  <div style="margin-top:6px; font-weight:900">{{ storm_banner }}</div>
-  <div class="muted" style="margin-top:6px">This appears when an active NWS warning polygon comes within your threshold.</div>
 </div>
 
-<div class="title">Radar (Dodge City – KDDC)</div>
-  <div class="sub">Animated loop (low bandwidth)</div>
+  <div style="height:16px"></div>
 
-  <div style="border-radius:18px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
-    <img
-      id="radarImg"
-      src="https://radar.weather.gov/ridge/standard/KDDC_loop.gif"
-      alt="Radar loop"
-      style="width:100%; display:block;"
-    />
+  <div class="card">
+    <div class="title">Tomorrow's Forecast</div>
+    {% if tomorrow_periods %}
+      {% for p in tomorrow_periods %}
+        <div style="padding:12px 0; border-top:1px solid rgba(31,41,55,.6)">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+            <div style="font-weight:900; font-size:16px;">{{ p.name }}</div>
+            <div style="font-size:22px; font-weight:900;">{{ p.temp }}</div>
+          </div>
+          <div class="sub" style="margin-top:4px;">{{ p.cond }}</div>
+          <div class="sub">Precip: <b>{{ p.precip }}</b> • Wind: <b>{{ p.wind }}</b></div>
+          <div style="margin-top:6px; color:var(--muted); font-size:13px;">{{ p.detail }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="sub">No forecast data available.</div>
+    {% endif %}
   </div>
 
-  <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: —</div>
+  <div style="height:16px"></div>
+
+  {% if storm_banner %}
+  <div class="card" style="border:1px solid rgba(245,158,11,.35);">
+    <div class="title">⚠ Storm Proximity</div>
+    <div style="margin-top:6px; font-weight:900">{{ storm_banner }}</div>
+    <div class="muted" style="margin-top:6px;">This appears when an active NWS warning polygon comes within your threshold.</div>
+  </div>
+  <div style="height:16px"></div>
+  {% endif %}
+
+  <div class="card">
+    <div class="title">Radar (Dodge City – KDDC)</div>
+    <div class="sub">Animated loop — refreshes every 2 minutes</div>
+    <div style="border-radius:14px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
+      <img id="radarImg" src="https://radar.weather.gov/ridge/standard/KDDC_loop.gif"
+           alt="Radar loop" style="width:100%; display:block;" />
+    </div>
+    <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: —</div>
+  </div>
+
+  <div style="height:16px"></div>
+
+  <div class="card">
+    <div class="title">Severe Weather & Alerts</div>
+    {% if alerts %}
+      {% for a in alerts %}
+        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
+          <div style="font-weight:900">{{ a.headline }}</div>
+          <div class="muted" style="margin-top:6px">{{ a.when }}</div>
+          <div style="margin-top:8px">{{ a.desc }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="sub">No active alerts.</div>
+    {% endif %}
+  </div>
+
 </div>
 
 <script>
 (function () {
   const img = document.getElementById("radarImg");
   const updated = document.getElementById("radarUpdated");
-
   function refreshRadar() {
-    const base = "https://radar.weather.gov/ridge/standard/KDDC_loop.gif";
-    img.src = base + "?t=" + Date.now();
+    img.src = "https://radar.weather.gov/ridge/standard/KDDC_loop.gif?t=" + Date.now();
     updated.textContent = "Radar refreshed: " + new Date().toLocaleString();
   }
-
   refreshRadar();
   setInterval(refreshRadar, 120000);
 })();
 </script>
 
-
-""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Weather Details ({{ wx_location }})</div>
-    <a class="btn" href="/">Home</a>
-  </div>
-
-  <div class="card">
-    {% if wx_ok %}
-      <div class="weatherLine">
-        <div class="temp">{{ wx_temp }}</div>
-        <div class="cond">{{ wx_condition }}</div>
-      </div>
-      <div class="sub">
-        Feels like: <b>{{ wx_feels }}</b> • High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> • Precip: <b>{{ wx_precip }}</b>
-      </div>
-      <div class="sub">Updated: {{ wx_updated }}</div>
-    {% else %}
-      <div class="sub">Weather unavailable right now.</div>
-    {% endif %}
-  </div>
-</div>
 </body></html>
 """
 
@@ -929,6 +954,84 @@ DELETE_HTML = """
 </body></html>
 """
 
+SETTINGS_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel Settings</title>
+  <style>
+    :root{
+      --bg: #0f1115; --panel: #151922; --text: #e7e9ee; --muted: #a8b0c2;
+      --border: #2a3142; --btn: #1b2231; --btnHover: #232c3f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { margin-bottom: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 20px 0; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .setting-row:last-child { border-bottom: none; }
+    .toggle { position: relative; width: 50px; height: 26px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #555; border-radius: 26px; transition: .3s; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background: white; border-radius: 50%; transition: .3s; }
+    input:checked + .slider { background: #4CAF50; }
+    input:checked + .slider:before { transform: translateX(24px); }
+    .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; }
+    .btn:hover { background: var(--btnHover); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Panel Settings</h1>
+    
+    <form method="post" action="{{ script_root }}/settings/update">
+      <div class="card">
+        <h2 style="margin-bottom: 15px;">Toggle Cards</h2>
+        
+        <div class="setting-row">
+          <span>Weather Card</span>
+          <label class="toggle">
+            <input type="checkbox" name="weather_enabled" {% if weather_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        
+        <div class="setting-row">
+          <span>RF / Nearby Signals Card</span>
+          <label class="toggle">
+            <input type="checkbox" name="rf_enabled" {% if rf_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        
+        <div class="setting-row">
+          <span>Network / Homelab Card</span>
+          <label class="toggle">
+            <input type="checkbox" name="network_enabled" {% if network_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        
+        <div class="setting-row">
+          <span>Alerts Card</span>
+          <label class="toggle">
+            <input type="checkbox" name="alerts_enabled" {% if alerts_enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+      
+      <button type="submit" class="btn">Save Settings</button>
+      <a href="{{ script_root }}/" class="btn">Back to Home</a>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
 
 def _parse_services_json(text: str):
     text = (text or "").strip()
@@ -1063,6 +1166,39 @@ def _safe_hourly_rows(limit: int = 12):
     return rows
 
 
+def _safe_tomorrow_periods():
+    rows = []
+    try:
+        forecast = weather_client.get_forecast()
+        periods = forecast.get("properties", {}).get("periods", []) or []
+        # Find tomorrow's periods (skip today/tonight)
+        tomorrow_periods = [p for p in periods if not p.get("name", "").lower().startswith("to")]
+        for p in tomorrow_periods[:2]:  # Day + Night
+            t = p.get("temperature")
+            u = p.get("temperatureUnit", "F")
+            temp = f"{t}°{u}" if t is not None else "—"
+            pop = p.get("probabilityOfPrecipitation", {}) or {}
+            popv = pop.get("value")
+            precip = f"{popv}%" if popv is not None else "—"
+            ws = p.get("windSpeed", "—")
+            wd = p.get("windDirection", "")
+            wind = f"{ws} {wd}".strip()
+            detail = p.get("detailedForecast", "")
+            if len(detail) > 200:
+                detail = detail[:200].rstrip() + "…"
+            rows.append({
+                "name": p.get("name", "—"),
+                "temp": temp,
+                "cond": p.get("shortForecast", "—"),
+                "precip": precip,
+                "wind": wind,
+                "detail": detail,
+            })
+    except Exception:
+        pass
+    return rows
+
+
 def _safe_alerts(limit: int = 5):
     items = []
     try:
@@ -1141,7 +1277,9 @@ def home():
     ctx["rf_wifi_count"] = str(len(RF_CACHE.get("wifi", []) or []))
     ctx["rf_ble_count"] = str(len(RF_CACHE.get("ble", []) or []))
     ctx["rf_last_scan"] = RF_CACHE.get("last_scan", "—") or "—"
-
+# Load panel settings
+    panel_settings = settings.load_settings()
+    ctx.update(panel_settings)
     return render_template_string(HOME_HTML, **ctx)
 @app.get("/weather")
 def weather_page():
@@ -1165,7 +1303,8 @@ def weather_page():
     return render_template_string(
         WEATHER_HTML,
         storm_banner=storm_banner,
-         **ctx, hourly_rows=hourly_rows, alerts=alerts)
+         **ctx, hourly_rows=hourly_rows, alerts=alerts,
+        tomorrow_periods=_safe_tomorrow_periods())
 
 @app.get("/network")
 def network_page():
@@ -1311,8 +1450,9 @@ def rf_scan_now():
     RF_CACHE["last_scan"] = time.strftime("%Y-%m-%d %H:%M:%S")
     _rf_save_state()
 
-    return redirect(url_for("rf_page"))
 
+    script_root = request.environ.get("SCRIPT_NAME", "")
+    return redirect(url_for("rf_page"))
 
 
 @app.get("/events")
@@ -1347,3 +1487,85 @@ def events_page():
         updated=now,
     )
 
+# ============================
+# System controls (behind nginx)
+# ============================
+
+@app.route("/system/")
+def system_menu():
+    return """
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>System</title>
+      <style>
+        body{font-family:system-ui,Segoe UI,Roboto,Arial; padding:18px; background:#0f1115; color:#e7e9ee;}
+        a,button{display:block; width:100%; padding:18px; margin:12px 0; font-size:20px; border-radius:14px;
+                 border:1px solid #2a3142; background:#1b2231; color:#e7e9ee; text-decoration:none; font-weight:800;}
+        .danger{background:rgba(255,77,77,0.12); border-color:rgba(255,77,77,0.35);}
+        .muted{color:#a8b0c2; font-size:14px;}
+      </style>
+    </head>
+    <body>
+      <a href="/" style="position:fixed;top:12px;left:12px;width:auto;padding:10px 14px;border-radius:12px;">🏠 Apps</a>
+      <h1 style="margin-top:58px;">System</h1>
+      <div class="muted">These buttons control services on this Pi.</div>
+
+      <form method="post" action="/system/restart">
+        <button type="submit">Restart Apps</button>
+      </form>
+
+      <form method="post" action="/system/reboot">
+        <button class="danger" type="submit">Reboot Pi</button>
+      </form>
+    </body>
+    </html>
+    """
+
+@app.route("/system/restart", methods=["POST"])
+def system_restart():
+    # Kill and restart gunicorn processes
+    subprocess.run(["pkill", "-f", "gunicorn.*5000"], check=False)
+    subprocess.run(["pkill", "-f", "gunicorn.*5100"], check=False)
+    return "<html><body><h1>Apps restarting...</h1><p>Refresh in 5 seconds.</p><script>setTimeout(()=>location.href='/',5000)</script></body></html>"
+
+@app.route("/system/reboot", methods=["POST"])
+def system_reboot():
+    subprocess.run(["sudo", "/sbin/reboot"], check=False)
+    return "<html><body><h1>Rebooting Pi...</h1><p>This will take about 30 seconds.</p></body></html>"
+
+#@app.get("/settings")
+#def settings_page():
+#    current_settings = settings.load_settings()
+#    return render_template_string(SETTINGS_HTML, **current_settings)
+
+#@app.post("/settings/update")
+#def settings_update():
+#    current_settings = settings.load_settings()
+    
+    # Update settings from form checkboxes
+#    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
+#    current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
+#    current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
+#    current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
+    
+#    settings.save_settings(current_settings)
+#    return redirect(url_for("settings_page"))
+
+@app.get("/settings")
+def settings_page():
+    current_settings = settings.load_settings()
+    return render_template_string(SETTINGS_HTML, **current_settings)
+
+@app.post("/settings/update")
+def settings_update():
+    current_settings = settings.load_settings()
+    
+    # Update settings from form checkboxes
+    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
+    current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
+    current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
+    current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
+    
+    settings.save_settings(current_settings)
+    return redirect("/")  # Changed from settings_page to home
