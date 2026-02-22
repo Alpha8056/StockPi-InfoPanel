@@ -381,7 +381,7 @@ WEATHER_HTML = """
     <div class="title">Radar (Dodge City – KDDC)</div>
     <div class="sub">Animated loop — refreshes every 2 minutes</div>
     <div style="border-radius:14px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
-      <img id="radarImg" src="https://radar.weather.gov/ridge/standard/KDDC_loop.gif"
+      <img id="radarImg" src="https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif"
            alt="Radar loop" style="width:100%; display:block;" />
     </div>
     <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: —</div>
@@ -411,7 +411,7 @@ WEATHER_HTML = """
   const img = document.getElementById("radarImg");
   const updated = document.getElementById("radarUpdated");
   function refreshRadar() {
-    img.src = "https://radar.weather.gov/ridge/standard/KDDC_loop.gif?t=" + Date.now();
+    img.src = "https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif?t=" + Date.now();
     updated.textContent = "Radar refreshed: " + new Date().toLocaleString();
   }
   refreshRadar();
@@ -986,7 +986,18 @@ SETTINGS_HTML = """
   <div class="container">
     <h1>Panel Settings</h1>
     
-    <form method="post" action="{{ script_root }}/settings/update">
+    <form method="post" action="settings/update">
+      <div class="card">
+        <h2 style="margin-bottom: 15px;">Weather Location</h2>
+        <div class="setting-row">
+          <span>ZIP Code</span>
+          <input type="text" name="weather_zip" value="{{ weather_zip }}"
+            style="background:#0f1115;border:1px solid #2a3142;border-radius:8px;padding:8px 12px;
+                   color:#e7e9ee;font-size:15px;width:120px;text-align:center;"
+            maxlength="5" placeholder="67601" />
+        </div>
+      </div>
+
       <div class="card">
         <h2 style="margin-bottom: 15px;">Toggle Cards</h2>
         
@@ -1024,7 +1035,6 @@ SETTINGS_HTML = """
       </div>
       
       <button type="submit" class="btn">Save Settings</button>
-      <a href="{{ script_root }}/" class="btn">Back to Home</a>
     </form>
   </div>
 </body>
@@ -1299,9 +1309,17 @@ def weather_page():
             storm_banner = prox[0].get("title") or "Storm nearby"
     except Exception:
         storm_banner = None
+    # Get dynamic radar station
+    try:
+        points = weather_client.get_points()
+        radar_station = points.get("properties", {}).get("radarStation", "KDDC")
+    except Exception:
+        radar_station = "KDDC"
+
     return render_template_string(
         WEATHER_HTML,
         storm_banner=storm_banner,
+        radar_station=radar_station,
          **ctx, hourly_rows=hourly_rows, alerts=alerts,
         tomorrow_periods=_safe_tomorrow_periods())
 
@@ -1542,7 +1560,33 @@ def system_reboot():
 #    current_settings = settings.load_settings()
     
     # Update settings from form checkboxes
-#    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
+#    # Update ZIP code if changed
+    new_zip = request.form.get("weather_zip", "").strip()
+    if new_zip and new_zip.isdigit() and len(new_zip) == 5:
+        import json as _json
+        cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+        try:
+            with open(cfg_path, "r") as f:
+                cfg = _json.load(f)
+        except Exception:
+            cfg = {}
+        cfg.setdefault("weather", {})["zip"] = new_zip
+        with open(cfg_path, "w") as f:
+            _json.dump(cfg, f, indent=2)
+        # Clear points cache so new ZIP takes effect immediately
+        import glob
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), "data_cache", "points_*.json")):
+            try:
+                os.remove(old_cache)
+            except Exception:
+                pass
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), "data_cache", "zip_*.json")):
+            try:
+                os.remove(old_cache)
+            except Exception:
+                pass
+
+    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
 #    current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
 #    current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
 #    current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
@@ -1553,11 +1597,42 @@ def system_reboot():
 @app.get("/settings")
 def settings_page():
     current_settings = settings.load_settings()
+    current_settings["weather_zip"] = weather_client.get_weather_zip()
     return render_template_string(SETTINGS_HTML, **current_settings)
 
 @app.post("/settings/update")
 def settings_update():
     current_settings = settings.load_settings()
+
+    # Save ZIP code if changed
+    new_zip = request.form.get('weather_zip', '').strip()
+    if new_zip and new_zip.isdigit() and len(new_zip) == 5:
+        import json as _json, glob
+        cfg_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        try:
+            with open(cfg_path, 'r') as f:
+                cfg = _json.load(f)
+        except Exception:
+            cfg = {}
+        cfg.setdefault('weather', {})['zip'] = new_zip
+        with open(cfg_path, 'w') as f:
+            _json.dump(cfg, f, indent=2)
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'points_*.json')):
+            try: os.remove(old_cache)
+            except Exception: pass
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'zip_*.json')):
+            try: os.remove(old_cache)
+            except Exception: pass
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'hourly_*.json')):
+            try: os.remove(old_cache)
+            except Exception: pass
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'forecast_*.json')):
+            try: os.remove(old_cache)
+            except Exception: pass
+        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'alerts_*.json')):
+            try: os.remove(old_cache)
+            except Exception: pass
+
     
     # Update settings from form checkboxes
     current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
