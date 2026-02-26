@@ -1,0 +1,9 @@
+{
+  "weather": {
+    "zip": "12345"
+  },
+  "location": {
+    "lat": null,
+    "lon": null
+  }
+}
