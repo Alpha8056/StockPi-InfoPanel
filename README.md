@@ -8,11 +8,11 @@ Info Panel side lets you see the weather: current forcast, an hourly 12 hr forca
 
 Fresh install
 
-  git clone https://github.com/Alpha8056/StockPi-InfoPanel.git
+      git clone https://github.com/Alpha8056/StockPi-InfoPanel.git
   
-  cd ~/StockPi-InfoPanel && chmod +x setup.sh && sudo ./setup.sh
+      cd ~/StockPi-InfoPanel && chmod +x setup.sh && sudo ./setup.sh
 
 
 Update to the newest github push
   
-  cd ~/StockPi-InfoPanel && git pull
+      cd ~/StockPi-InfoPanel && git pull
