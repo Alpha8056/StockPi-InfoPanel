@@ -28,6 +28,9 @@ try:
 except Exception:
     qrcode = None
 
+import db as _db
+_db.init_db()
+
 from inventory import (
     # Barcode alias support
     resolve_barcode,

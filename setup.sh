@@ -214,3 +214,35 @@ echo ""
 echo -e "  To change your ZIP code later, visit:"
 echo -e "  ${CYAN}http://${LOCAL_IP}/panel/settings${NC}"
 echo ""
+
+# =============================================================================
+# KITCHEN INVENTORY — venv + service
+# =============================================================================
+echo ""
+echo -e "${BOLD}--- Setting up Kitchen Inventory ---${NC}"
+
+KITCHEN_DIR="$REPO_DIR/kitchen_inventory"
+KITCHEN_VENV="$KITCHEN_DIR/venv"
+
+if [[ -d "$KITCHEN_VENV" ]]; then
+  warn "Kitchen venv already exists — skipping creation."
+else
+  sudo -u "$REAL_USER" python3 -m venv "$KITCHEN_VENV"
+  success "Kitchen venv created."
+fi
+
+info "Installing kitchen dependencies..."
+sudo -u "$REAL_USER" "$KITCHEN_VENV/bin/pip" install --upgrade pip --quiet
+sudo -u "$REAL_USER" "$KITCHEN_VENV/bin/pip" install -r "$KITCHEN_DIR/requirements.txt" --quiet
+success "Kitchen dependencies installed."
+
+KITCHEN_SERVICE_DEST="/etc/systemd/system/kitchen.service"
+sed \
+  -e "s|User=kinv|User=$REAL_USER|g" \
+  -e "s|/home/kinv/kitchen_inventory|$KITCHEN_DIR|g" \
+  "$REPO_DIR/systemd/kitchen.service" > "$KITCHEN_SERVICE_DEST"
+
+systemctl daemon-reload
+systemctl enable kitchen.service
+systemctl restart kitchen.service
+success "kitchen.service installed and started."
