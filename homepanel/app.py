@@ -1303,9 +1303,6 @@ def weather_page():
     storm_banner = None
     try:
         import alerts_db
-import network_db
-network_db.init_db()
-alerts_db.init_db()
         alerts_db.init_db()
         active = alerts_db.list_alerts(active_only=True, limit=200)
         prox = [a for a in active if str(a.get("key","")).startswith("wxprox:")]
