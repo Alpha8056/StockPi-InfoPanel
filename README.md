@@ -5,10 +5,13 @@ Anything thast hits 0 gets added to grocery list, items you select with a thresh
 
 Info Panel side lets you see the weather: current forcast, an hourly 12 hr forcast, tomorrows forcast, weather ALERTS, radar gif. Homelab Ping moniter, Alerts/Events page, RF signals page that doesnt really work at the moment. 
 
+
 Fresh install
 
   git clone https://github.com/Alpha8056/StockPi-InfoPanel.git
-  chmod +x setup.sh && sudo ./setup.sh
+  
+  cd ~/StockPi-InfoPanel && chmod +x setup.sh && sudo ./setup.sh
+
 
 Update to the newest github push
   
