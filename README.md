@@ -11,4 +11,5 @@ Fresh install
   chmod +x setup.sh && sudo ./setup.sh
 
 Update to the newest github push
+  
   cd ~/StockPi-InfoPanel && git pull
