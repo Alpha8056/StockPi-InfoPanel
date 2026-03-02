@@ -436,7 +436,7 @@ NETWORK_HTML = """
   <div class="topbar">
     <div class="title" style="margin:0">Network / Homelab</div>
     <div class="btnRow">
-      <a class="btn btnPrimary" href="/network/manage">Manage Devices</a>
+      <a class="btn btnPrimary" href="{{ script_root }}/network/manage">Manage Devices</a>
       <a class="btn" href="/">Home</a>
     </div>
   </div>
@@ -589,7 +589,7 @@ RF_HTML = """
   <div class="topbar">
     <div class="title" style="margin:0">RF / Nearby Signals</div>
     <div class="btnRow">
-      <a class="btn btnPrimary" href="/rf/scan">Scan now</a>
+      <a class="btn btnPrimary" href="{{ script_root }}/rf/scan">Scan now</a>
       <a class="btn" href="/">Home</a>
     </div>
   </div>
@@ -663,7 +663,7 @@ MANAGE_HTML = """
   <div class="topbar">
     <div class="title" style="margin:0">Manage Devices</div>
     <div class="btnRow">
-      <a class="btn btnPrimary" href="/network/device/new">Add Device</a>
+      <a class="btn btnPrimary" href="{{ script_root }}/network/device/new">Add Device</a>
       <a class="btn" href="/network">Back</a>
     </div>
   </div>
@@ -683,8 +683,8 @@ MANAGE_HTML = """
             <td>{{ d.type }}</td>
             <td>{{ d.svc_count }}</td>
             <td>
-              <a class="btn" href="/network/device/{{ loop.index0 }}/edit">Edit</a>
-              <a class="btn btnDanger" href="/network/device/{{ loop.index0 }}/delete">Delete</a>
+              <a class="btn" href="{{ script_root }}/network/device/{{ loop.index0 }}/edit">Edit</a>
+              <a class="btn btnDanger" href="{{ script_root }}/network/device/{{ loop.index0 }}/delete">Delete</a>
             </td>
           </tr>
           {% endfor %}
@@ -708,7 +708,7 @@ DEVICE_FORM_HTML = """
 <div class="wrap">
   <div class="topbar">
     <div class="title" style="margin:0">{{ title }}</div>
-    <a class="btn" href="/network/manage">Back</a>
+    <a class="btn" href="{{ script_root }}/network/manage">Back</a>
   </div>
 
   {% if error %}
@@ -756,7 +756,7 @@ DEVICE_FORM_HTML = """
     <div style="height:12px"></div>
     <div class="btnRow">
       <button class="btn btnPrimary" type="submit">Save</button>
-      <a class="btn" href="/network/manage">Cancel</a>
+      <a class="btn" href="{{ script_root }}/network/manage">Cancel</a>
     </div>
   </form>
 </div>
@@ -883,7 +883,7 @@ DEVICE_FORM_HTML = """
 <div class="wrap">
   <div class="topbar">
     <div class="title" style="margin:0">{{ title }}</div>
-    <a class="btn" href="/network/manage">Back</a>
+    <a class="btn" href="{{ script_root }}/network/manage">Back</a>
   </div>
 
   {% if error %}
@@ -920,7 +920,7 @@ DEVICE_FORM_HTML = """
     <div style="height:12px"></div>
     <div class="btnRow">
       <button class="btn btnPrimary" type="submit">Save</button>
-      <a class="btn" href="/network/manage">Cancel</a>
+      <a class="btn" href="{{ script_root }}/network/manage">Cancel</a>
     </div>
   </form>
 </div>
@@ -937,7 +937,7 @@ DELETE_HTML = """
 <div class="wrap">
   <div class="topbar">
     <div class="title" style="margin:0">Delete Device</div>
-    <a class="btn" href="/network/manage">Back</a>
+    <a class="btn" href="{{ script_root }}/network/manage">Back</a>
   </div>
 
   <div class="card">
@@ -948,7 +948,7 @@ DELETE_HTML = """
     <form method="post">
       <div class="btnRow">
         <button class="btn btnDanger" type="submit">Delete</button>
-        <a class="btn" href="/network/manage">Cancel</a>
+        <a class="btn" href="{{ script_root }}/network/manage">Cancel</a>
       </div>
     </form>
   </div>
