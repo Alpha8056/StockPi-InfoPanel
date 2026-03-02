@@ -1383,7 +1383,7 @@ def device_new():
             return render_template_string(DEVICE_FORM_HTML, title="Add Device", dev=dev, services_list_json=services_json, error=str(e))
 
         devices_store.add_device({"name": name, "ip": ip, "type": dtype, "services": services})
-        return redirect(url_for("manage_devices"))
+        return redirect(request.script_root + url_for("manage_devices"))
 
     dev = {"name": "", "ip": "", "type": ""}
     return render_template_string(DEVICE_FORM_HTML, title="Add Device", dev=dev, services_list_json="[]", error="")
@@ -1406,7 +1406,7 @@ def device_edit(idx: int):
             return render_template_string(DEVICE_FORM_HTML, title="Edit Device", dev=show, services_list_json=services_json, error=str(e))
 
         devices_store.update_device(idx, {"name": name, "ip": ip, "type": dtype, "services": services})
-        return redirect(url_for("manage_devices"))
+        return redirect(request.script_root + url_for("manage_devices"))
 
     import json
     services_json = json.dumps(dev0.get("services", []) or [], indent=2)
@@ -1419,7 +1419,7 @@ def device_delete(idx: int):
     dev = devices_store.get_device(idx)
     if request.method == "POST":
         devices_store.delete_device(idx)
-        return redirect(url_for("manage_devices"))
+        return redirect(request.script_root + url_for("manage_devices"))
     show = {"name": dev.get("name", ""), "ip": dev.get("ip", ""), "type": dev.get("type", "")}
     return render_template_string(DELETE_HTML, dev=show)
 
@@ -1472,7 +1472,7 @@ def rf_scan_now():
 
 
     script_root = request.environ.get("SCRIPT_NAME", "")
-    return redirect(url_for("rf_page"))
+    return redirect(request.script_root + url_for("rf_page"))
 
 
 @app.get("/events")
