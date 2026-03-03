@@ -127,6 +127,7 @@ if [ ! -f "$PANEL_SETTINGS_PATH" ]; then
   "alerts_enabled": true
 }
 JSONEOF
+  chown "$REAL_USER":"$REAL_USER" "$PANEL_SETTINGS_PATH"
   success "panel_settings.json created."
 else
   warn "panel_settings.json already exists — skipping."
@@ -213,23 +214,6 @@ if $SETUP_KIOSK; then
   success "Kiosk autostart configured. Will launch on next desktop login."
 fi
 
-# =============================================================================
-# DONE
-# =============================================================================
-echo ""
-echo -e "${BOLD}============================================${NC}"
-echo -e "${GREEN}${BOLD}   Setup complete!${NC}"
-echo -e "${BOLD}============================================${NC}"
-echo ""
-
-LOCAL_IP=$(hostname -I | awk '{print $1}')
-echo -e "  Open in a browser: ${CYAN}http://${LOCAL_IP}${NC}"
-echo -e "  Check service status: ${CYAN}sudo systemctl status infopanel.service${NC}"
-echo -e "  View logs: ${CYAN}sudo journalctl -u infopanel.service -f${NC}"
-echo ""
-echo -e "  To change your ZIP code later, visit:"
-echo -e "  ${CYAN}http://${LOCAL_IP}/panel/settings${NC}"
-echo ""
 
 # =============================================================================
 # KITCHEN INVENTORY — venv + service
@@ -262,3 +246,22 @@ systemctl daemon-reload
 systemctl enable kitchen.service
 systemctl restart kitchen.service
 success "kitchen.service installed and started."
+
+# =============================================================================
+# DONE
+# =============================================================================
+echo ""
+echo -e "${BOLD}============================================${NC}"
+echo -e "${GREEN}${BOLD}   Setup complete!${NC}"
+echo -e "${BOLD}============================================${NC}"
+echo ""
+
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+echo -e "  Open in a browser: ${CYAN}http://${LOCAL_IP}${NC}"
+echo -e "  Check service status: ${CYAN}sudo systemctl status infopanel.service${NC}"
+echo -e "  View logs: ${CYAN}sudo journalctl -u infopanel.service -f${NC}"
+echo ""
+echo -e "  To change your ZIP code later, visit:"
+echo -e "  ${CYAN}http://${LOCAL_IP}/panel/settings${NC}"
+echo ""
+
