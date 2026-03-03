@@ -399,13 +399,12 @@ def _shelf_selector(current_zone, current_shelf, loc_map):
 
 
 def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
-    from flask import request as _req
-    base = _req.script_root or ""
-    url = f"{base}/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    from flask import request
+    script_root = request.environ.get("SCRIPT_NAME", "")
+    url = f"{script_root}/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
     if msg:
         url += f"&msg={msg.replace(' ', '%20')}"
     return url
-
 
 # ============================================================
 # SECTION: Routes — Home + Scan
@@ -1495,21 +1494,27 @@ def print_grocery():
     if not rows:
         rows = "<li style='margin:10px 0;font-size:20px;'>(Empty)</li>"
 
-    return f"""
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>StockPi Grocery List</title>
-    </head>
-    <body style="font-family:system-ui,Segoe UI,Roboto,Arial; padding:18px;">
-      <h1 style="margin:0 0 12px 0;">StockPi Grocery List</h1>
-      <div style="color:#555; margin-bottom:14px;">Print this page or “Save as PDF” on your phone.</div>
-      <ul style="padding-left:22px; margin:0;">
-        {rows}
-      </ul>
-    </body>
-    </html>
-    """
+
+    return f"""<!doctype html>
+<html><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StockPi Grocery List</title>
+  <style>
+    :root{{--bg:#0f1115;--text:#e7e9ee;--muted:#a8b0c2;--border:#2a3142;}}
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;padding:24px;}}
+    h1{{font-size:24px;margin-bottom:8px;}}
+    .sub{{color:var(--muted);font-size:14px;margin-bottom:20px;}}
+    ul{{padding-left:22px;}} li{{margin:10px 0;font-size:20px;}}
+    @media print{{body{{background:#fff;color:#000;}}}}
+  </style>
+</head><body>
+  <h1>StockPi Grocery List</h1>
+  <div class="sub">Print this page or save as PDF.</div>
+  <ul>{rows}</ul>
+</body></html>"""
+
 
 
 @app.route("/print/inventory")
@@ -1532,6 +1537,7 @@ def print_inventory():
     return f"""
     <html>
     <head>
+      <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>StockPi Inventory</title>
     </head>
