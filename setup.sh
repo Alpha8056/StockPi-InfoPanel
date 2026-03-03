@@ -116,6 +116,22 @@ else
   success "devices.json created (empty device list)."
 fi
 
+# Create panel_settings.json (if it doesn't exist)
+PANEL_SETTINGS_PATH="$REPO_DIR/homepanel/panel_settings.json"
+if [ ! -f "$PANEL_SETTINGS_PATH" ]; then
+  cat > "$PANEL_SETTINGS_PATH" << 'JSONEOF'
+{
+  "weather_enabled": true,
+  "rf_enabled": false,
+  "network_enabled": false,
+  "alerts_enabled": true
+}
+JSONEOF
+  success "panel_settings.json created."
+else
+  warn "panel_settings.json already exists — skipping."
+fi
+
 # =============================================================================
 # 5. CREATE data_cache DIRECTORY
 # =============================================================================
