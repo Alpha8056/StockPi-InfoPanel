@@ -1612,7 +1612,7 @@ def weather_settings_update():
             sections[key] = 0
     current_settings["weather_sections"] = sections
     settings.save_settings(current_settings)
-    return redirect(request.script_root + "/settings")
+    return redirect(request.referrer or request.script_root + "/settings")
 
 @app.get("/settings")
 def settings_page():
