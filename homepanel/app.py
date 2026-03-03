@@ -1,3 +1,65 @@
+
+WEATHER_SETTINGS_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather Settings</title>
+  <style>
+    :root{
+      --bg: #0f1115; --panel: #151922; --text: #e7e9ee; --muted: #a8b0c2;
+      --border: #2a3142; --btn: #1b2231; --btnHover: #232c3f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { margin-bottom: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 20px 0; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-row span { font-size: 15px; }
+    select { background: #0f1115; border: 1px solid #2a3142; border-radius: 8px; padding: 8px 12px; color: #e7e9ee; font-size: 15px; }
+    .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; margin-right: 10px; }
+    .btn:hover { background: var(--btnHover); }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Weather Section Order</h1>
+    <p class="hint" style="margin-bottom:10px;">Set priority 1–5 to show a section. 0 = hidden. If two sections share a priority, they appear in default order.</p>
+
+    <form method="post" action="weather/update">
+      <div class="card">
+        {% set sections = [
+          ("current", "Current Conditions"),
+          ("hourly", "Hourly Forecast"),
+          ("alerts", "Active Alerts"),
+          ("forecast", "Multi-Day Forecast"),
+          ("radar", "Radar")
+        ] %}
+        {% for key, label in sections %}
+        <div class="setting-row">
+          <span>{{ label }}</span>
+          <select name="section_{{ key }}">
+            {% for i in range(6) %}
+            <option value="{{ i }}" {% if weather_sections.get(key, 0) == i %}selected{% endif %}>
+              {{ "Hidden" if i == 0 else i }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      <button type="submit" class="btn">Save</button>
+      <a href="../settings" class="btn">Back</a>
+    </form>
+  </div>
+</body>
+</html>
+"""
 from flask import Flask, render_template_string, request, redirect, url_for
 
 import weather_client
@@ -283,145 +345,115 @@ WEATHER_HTML = """
     <a class="btn" href="/">Home</a>
   </div>
 
-  <div class="card">
-    {% if wx_ok %}
-      <div class="weatherLine">
-        <div class="temp">{{ wx_temp }}</div>
-        <div class="cond">{{ wx_condition }}</div>
-      </div>
-      <div class="sub">
-        Feels like: <b>{{ wx_feels }}</b> • High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> • Precip: <b>{{ wx_precip }}</b>
-      </div>
-      <div class="sub">Updated: {{ wx_updated }}</div>
-    {% else %}
-      <div class="sub">Weather unavailable right now.</div>
-    {% endif %}
-  </div>
-  <div style="height:16px"></div>
+  {% for section in ordered_sections %}
 
-  <div class="card">
-    <div class="title">Hourly Forecast (Next 12 Hours)</div>
-    {% if hourly_rows %}
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Temp</th>
-            <th>Condition</th>
-            <th>Precip</th>
-            <th>Wind</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for r in hourly_rows %}
-          <tr>
-            <td>{{ r.time }}</td>
-            <td><b>{{ r.temp }}</b></td>
-            <td>{{ r.cond }}</td>
-            <td>{{ r.precip }}</td>
-            <td>{{ r.wind }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">No hourly data available.</div>
-    {% endif %}
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Severe Weather & Alerts</div>
-    {% if alerts %}
-      {% for a in alerts %}
-        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
-          <div style="font-weight:900">{{ a.headline }}</div>
-          <div class="muted" style="margin-top:6px">{{ a.when }}</div>
-          <div style="margin-top:8px">{{ a.desc }}</div>
+    {% if section == "current" %}
+    <div class="card">
+      {% if wx_ok %}
+        <div class="weatherLine">
+          <div class="temp">{{ wx_temp }}</div>
+          <div class="cond">{{ wx_condition }}</div>
         </div>
-      {% endfor %}
-    {% else %}
-      <div class="sub">No active alerts.</div>
-    {% endif %}
-  </div>
-</div>
-</div>
+        <div class="sub">
+          Feels like: <b>{{ wx_feels }}</b> &bull; High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> &bull; Precip: <b>{{ wx_precip }}</b>
+        </div>
+        <div class="sub">Updated: {{ wx_updated }}</div>
+      {% else %}
+        <div class="sub">Weather unavailable right now.</div>
+      {% endif %}
+    </div>
 
-  <div style="height:16px"></div>
+    {% elif section == "hourly" %}
+    <div class="card">
+      <div class="title">Hourly Forecast (Next 12 Hours)</div>
+      {% if hourly_rows %}
+        <table>
+          <thead><tr><th>Time</th><th>Temp</th><th>Condition</th><th>Precip</th><th>Wind</th></tr></thead>
+          <tbody>
+          {% for r in hourly_rows %}
+            <tr><td>{{ r.time }}</td><td><b>{{ r.temp }}</b></td><td>{{ r.cond }}</td><td>{{ r.precip }}</td><td>{{ r.wind }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="sub">No hourly data available.</div>
+      {% endif %}
+    </div>
 
-  <div class="card">
-    <div class="title">Tomorrow's Forecast</div>
-    {% if tomorrow_periods %}
-      {% for p in tomorrow_periods %}
-        <div style="padding:12px 0; border-top:1px solid rgba(31,41,55,.6)">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-            <div style="font-weight:900; font-size:16px;">{{ p.name }}</div>
-            <div style="font-size:22px; font-weight:900;">{{ p.temp }}</div>
+    {% elif section == "alerts" %}
+    <div class="card">
+      <div class="title">Severe Weather &amp; Alerts</div>
+      {% if alerts %}
+        {% for a in alerts %}
+          <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
+            <div style="font-weight:900">{{ a.headline }}</div>
+            <div class="muted" style="margin-top:6px">{{ a.when }}</div>
+            <div style="margin-top:8px">{{ a.desc }}</div>
           </div>
-          <div class="sub" style="margin-top:4px;">{{ p.cond }}</div>
-          <div class="sub">Precip: <b>{{ p.precip }}</b> • Wind: <b>{{ p.wind }}</b></div>
-          <div style="margin-top:6px; color:var(--muted); font-size:13px;">{{ p.detail }}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="sub">No forecast data available.</div>
-    {% endif %}
-  </div>
+        {% endfor %}
+      {% else %}
+        <div class="sub">No active alerts.</div>
+      {% endif %}
+    </div>
 
-  <div style="height:16px"></div>
+    {% elif section == "forecast" %}
+    <div class="card">
+      <div class="title">Tomorrow's Forecast</div>
+      {% if tomorrow_periods %}
+        {% for p in tomorrow_periods %}
+          <div style="padding:12px 0; border-top:1px solid rgba(31,41,55,.6)">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+              <div style="font-weight:900; font-size:16px;">{{ p.name }}</div>
+              <div style="font-size:22px; font-weight:900;">{{ p.temp }}</div>
+            </div>
+            <div class="sub" style="margin-top:4px;">{{ p.cond }}</div>
+            <div class="sub">Precip: <b>{{ p.precip }}</b> &bull; Wind: <b>{{ p.wind }}</b></div>
+            <div style="margin-top:6px; color:var(--muted); font-size:13px;">{{ p.detail }}</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="sub">No forecast data available.</div>
+      {% endif %}
+    </div>
+
+    {% elif section == "radar" %}
+    <div class="card">
+      <div class="title">Radar</div>
+      <div class="sub">Animated loop - refreshes every 2 minutes</div>
+      <div style="border-radius:14px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
+        <img id="radarImg" src="https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif"
+             alt="Radar loop" style="width:100%; display:block;" />
+      </div>
+      <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: -</div>
+    </div>
+
+    {% endif %}
+    <div style="height:16px"></div>
+
+  {% endfor %}
 
   {% if storm_banner %}
   <div class="card" style="border:1px solid rgba(245,158,11,.35);">
-    <div class="title">⚠ Storm Proximity</div>
+    <div class="title">Storm Proximity</div>
     <div style="margin-top:6px; font-weight:900">{{ storm_banner }}</div>
-    <div class="muted" style="margin-top:6px;">This appears when an active NWS warning polygon comes within your threshold.</div>
+    <div class="muted" style="margin-top:6px;">Active NWS warning polygon within your threshold.</div>
   </div>
   <div style="height:16px"></div>
   {% endif %}
 
-  <div class="card">
-    <div class="title">Radar (Dodge City – KDDC)</div>
-    <div class="sub">Animated loop — refreshes every 2 minutes</div>
-    <div style="border-radius:14px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
-      <img id="radarImg" src="https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif"
-           alt="Radar loop" style="width:100%; display:block;" />
-    </div>
-    <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: —</div>
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Severe Weather & Alerts</div>
-    {% if alerts %}
-      {% for a in alerts %}
-        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
-          <div style="font-weight:900">{{ a.headline }}</div>
-          <div class="muted" style="margin-top:6px">{{ a.when }}</div>
-          <div style="margin-top:8px">{{ a.desc }}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="sub">No active alerts.</div>
-    {% endif %}
-  </div>
-
 </div>
-
 <script>
 (function () {
   const img = document.getElementById("radarImg");
   const updated = document.getElementById("radarUpdated");
+  if (!img) return;
   function refreshRadar() {
     img.src = "https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif?t=" + Date.now();
     updated.textContent = "Radar refreshed: " + new Date().toLocaleString();
   }
-  refreshRadar();
   setInterval(refreshRadar, 120000);
 })();
 </script>
-
 </body></html>
 """
 
@@ -1039,6 +1071,7 @@ SETTINGS_HTML = """
       
       <button type="submit" class="btn">Save Settings</button>
     </form>
+    <a href="settings/weather" class="btn" style="margin-top:10px; display:inline-block;">Weather Section Settings</a>
   </div>
 </body>
 </html>
@@ -1319,11 +1352,17 @@ def weather_page():
     except Exception:
         radar_station = "KDDC"
 
+    panel_settings = settings.load_settings()
+    weather_sections = panel_settings.get("weather_sections", {
+        "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
+    })
+    ordered_sections = [k for k, v in sorted(weather_sections.items(), key=lambda x: (x[1] == 0, x[1])) if v != 0]
     return render_template_string(
         WEATHER_HTML,
         storm_banner=storm_banner,
         radar_station=radar_station,
-         **ctx, hourly_rows=hourly_rows, alerts=alerts,
+        ordered_sections=ordered_sections,
+        **ctx, hourly_rows=hourly_rows, alerts=alerts,
         tomorrow_periods=_safe_tomorrow_periods())
 
 @app.get("/network")
@@ -1553,49 +1592,27 @@ def system_reboot():
     subprocess.run(["/usr/bin/sudo", "/sbin/reboot"], check=False)
     return "<html><body><h1>Rebooting Pi...</h1><p>This will take about 30 seconds.</p></body></html>"
 
-#@app.get("/settings")
-#def settings_page():
-#    current_settings = settings.load_settings()
-#    return render_template_string(SETTINGS_HTML, **current_settings)
+#
+@app.get("/settings/weather")
+def weather_settings_page():
+    current_settings = settings.load_settings()
+    weather_sections = current_settings.get("weather_sections", {
+        "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
+    })
+    return render_template_string(WEATHER_SETTINGS_HTML, weather_sections=weather_sections)
 
-#@app.post("/settings/update")
-#def settings_update():
-#    current_settings = settings.load_settings()
-    
-    # Update settings from form checkboxes
-#    # Update ZIP code if changed
-    new_zip = request.form.get("weather_zip", "").strip()
-    if new_zip and new_zip.isdigit() and len(new_zip) == 5:
-        import json as _json
-        cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+@app.post("/settings/weather/update")
+def weather_settings_update():
+    current_settings = settings.load_settings()
+    sections = {}
+    for key in ["current", "hourly", "alerts", "forecast", "radar"]:
         try:
-            with open(cfg_path, "r") as f:
-                cfg = _json.load(f)
-        except Exception:
-            cfg = {}
-        cfg.setdefault("weather", {})["zip"] = new_zip
-        with open(cfg_path, "w") as f:
-            _json.dump(cfg, f, indent=2)
-        # Clear points cache so new ZIP takes effect immediately
-        import glob
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), "data_cache", "points_*.json")):
-            try:
-                os.remove(old_cache)
-            except Exception:
-                pass
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), "data_cache", "zip_*.json")):
-            try:
-                os.remove(old_cache)
-            except Exception:
-                pass
-
-    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
-#    current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
-#    current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
-#    current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
-    
-#    settings.save_settings(current_settings)
-#    return redirect(url_for("settings_page"))
+            sections[key] = int(request.form.get(f"section_{key}", 0))
+        except ValueError:
+            sections[key] = 0
+    current_settings["weather_sections"] = sections
+    settings.save_settings(current_settings)
+    return redirect(request.script_root + "/settings")
 
 @app.get("/settings")
 def settings_page():
