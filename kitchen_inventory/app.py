@@ -397,14 +397,12 @@ def _shelf_selector(current_zone, current_shelf, loc_map):
       </div>
     """
 
-
 def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
-    from flask import request
-    script_root = request.environ.get("SCRIPT_NAME", "")
-    url = f"{script_root}/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    url = f"/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
     if msg:
         url += f"&msg={msg.replace(' ', '%20')}"
     return url
+
 
 # ============================================================
 # SECTION: Routes — Home + Scan
@@ -433,7 +431,7 @@ def home():
     {_styles()}{_auto_hide_banner_js()}{focus_js}
     <div class="wrap"><div class="container">
       <header>
-        <div><h1>Kitchen Inventory</h1><div class="sub">Fast scan, local-first, touchscreen-friendly</div></div>
+        <div><h1>StockPi</h1><div class="sub">Fast scan, local-first, touchscreen-friendly</div></div>
         <div class="muted">Location <span class="chip">{location}</span></div>
       </header>
 
