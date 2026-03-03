@@ -1585,12 +1585,90 @@ def system_menu():
 def system_restart():
     subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
     subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
-    return "<html><body><h1>Apps restarting...</h1><p>Refresh in 5 seconds.</p><script>setTimeout(()=>location.href='/',5000)</script></body></html>"
+    return """<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restarting...</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;}
+  .card{background:#151922;border:1px solid #2a3142;border-radius:16px;
+        padding:40px 48px;text-align:center;max-width:380px;width:90%;}
+  h1{font-size:22px;margin-bottom:12px;}
+  p{color:#a8b0c2;font-size:15px;margin-bottom:24px;}
+  .spinner{width:40px;height:40px;border:3px solid #2a3142;
+           border-top-color:#4CAF50;border-radius:50%;
+           animation:spin 0.8s linear infinite;margin:0 auto 20px;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .countdown{font-size:36px;font-weight:900;color:#4CAF50;margin-bottom:8px;}
+  .hint{color:#a8b0c2;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner"></div>
+  <h1>Restarting Apps</h1>
+  <p>Services are restarting. You will be redirected shortly.</p>
+  <div class="countdown" id="cd">5</div>
+  <div class="hint">Redirecting in <span id="s">5</span> seconds...</div>
+</div>
+<script>
+  let t = 5;
+  const cd = document.getElementById('cd');
+  const s = document.getElementById('s');
+  const iv = setInterval(() => {
+    t--;
+    cd.textContent = t;
+    s.textContent = t;
+    if (t <= 0) { clearInterval(iv); location.href = '/'; }
+  }, 1000);
+</script>
+</body></html>"""
 
 @app.route("/system/reboot", methods=["POST"])
 def system_reboot():
     subprocess.run(["/usr/bin/sudo", "/sbin/reboot"], check=False)
-    return "<html><body><h1>Rebooting Pi...</h1><p>This will take about 30 seconds.</p></body></html>"
+    return """<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rebooting...</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;}
+  .card{background:#151922;border:1px solid #2a3142;border-radius:16px;
+        padding:40px 48px;text-align:center;max-width:380px;width:90%;}
+  h1{font-size:22px;margin-bottom:12px;}
+  p{color:#a8b0c2;font-size:15px;margin-bottom:24px;}
+  .spinner{width:40px;height:40px;border:3px solid #2a3142;
+           border-top-color:#e67e22;border-radius:50%;
+           animation:spin 0.8s linear infinite;margin:0 auto 20px;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .countdown{font-size:36px;font-weight:900;color:#e67e22;margin-bottom:8px;}
+  .hint{color:#a8b0c2;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner"></div>
+  <h1>Rebooting Pi</h1>
+  <p>The Pi is rebooting. This will take about 30 seconds.</p>
+  <div class="countdown" id="cd">30</div>
+  <div class="hint">Attempting to reconnect in <span id="s">30</span> seconds...</div>
+</div>
+<script>
+  let t = 30;
+  const cd = document.getElementById('cd');
+  const s = document.getElementById('s');
+  const iv = setInterval(() => {
+    t--;
+    cd.textContent = t;
+    s.textContent = t;
+    if (t <= 0) { clearInterval(iv); location.href = '/'; }
+  }, 1000);
+</script>
+</body></html>"""
 
 #
 @app.get("/settings/weather")

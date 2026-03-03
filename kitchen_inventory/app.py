@@ -399,7 +399,9 @@ def _shelf_selector(current_zone, current_shelf, loc_map):
 
 
 def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
-    url = f"/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    from flask import request as _req
+    base = _req.script_root or ""
+    url = f"{base}/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
     if msg:
         url += f"&msg={msg.replace(' ', '%20')}"
     return url
@@ -640,11 +642,11 @@ def move_scan():
 
     barcode = (request.form.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect(f"/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + f"/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Barcode%20required")
 
     item = get_item_by_barcode(barcode)
     if not item:
-        return redirect(f"/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Item%20not%20found")
+        return redirect(request.script_root + f"/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Item%20not%20found")
 
     current_location = item[2]
     name = item[1]
@@ -815,40 +817,40 @@ def threshold_set():
         thr_i = 0
 
     if not barcode:
-        return redirect("/inventory?msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Barcode%20required")
 
     set_low_threshold(barcode, thr_i)
     item = get_item_by_barcode(barcode)
     name = item[1] if item else "item"
-    return redirect(f"/inventory?msgtype=ok&msg=Set%20low%20threshold%20for%20{name.replace(' ', '%20')}")
+    return redirect(request.script_root + f"/inventory?msgtype=ok&msg=Set%20low%20threshold%20for%20{name.replace(' ', '%20')}")
 
 
 @app.route("/inventory-remove", methods=["POST"])
 def inventory_remove():
     barcode = (request.form.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect("/inventory?msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Barcode%20required")
 
     item = get_item_by_barcode(barcode)
     if not item:
-        return redirect("/inventory?msgtype=danger&msg=Item%20not%20found")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Item%20not%20found")
 
     remove_one(barcode)
-    return redirect(f"/inventory?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20(-1)")
+    return redirect(request.script_root + f"/inventory?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20(-1)")
 
 
 @app.route("/inventory-delete", methods=["POST"])
 def inventory_delete():
     barcode = (request.form.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect("/inventory?msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Barcode%20required")
 
     item = get_item_by_barcode(barcode)
     if not item:
-        return redirect("/inventory?msgtype=danger&msg=Item%20not%20found")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Item%20not%20found")
 
     delete_item(barcode)
-    return redirect(f"/inventory?msgtype=danger&msg=Deleted%20{item[1].replace(' ', '%20')}")
+    return redirect(request.script_root + f"/inventory?msgtype=danger&msg=Deleted%20{item[1].replace(' ', '%20')}")
 
 
 # ============================================================
@@ -899,11 +901,11 @@ def low_stock_page():
 def stats_page():
     barcode = (request.args.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect("/inventory?msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Barcode%20required")
 
     stats = get_item_stats(barcode)
     if not stats.get("found"):
-        return redirect("/inventory?msgtype=danger&msg=Item%20not%20found")
+        return redirect(request.script_root + "/inventory?msgtype=danger&msg=Item%20not%20found")
 
     name = stats["name"]
     location = stats["location"]
@@ -1009,11 +1011,11 @@ def grocery_list_page():
 def grocery_remove():
     barcode = (request.form.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect("/grocery-list?msgtype=danger&msg=Barcode%20required")
+        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Barcode%20required")
 
     item = get_item_by_barcode(barcode)
     if not item:
-        return redirect("/grocery-list?msgtype=danger&msg=Item%20not%20found")
+        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Item%20not%20found")
 
     delete_grocery_only(barcode)
     return redirect(
@@ -1119,20 +1121,20 @@ def locations_add():
     hs = True if has_shelves == "1" else False
 
     add_location(name, hs)
-    return redirect(f"/tools?msgtype=ok&msg=Added%20location%20{name.replace(' ', '%20')}")
+    return redirect(request.script_root + f"/tools?msgtype=ok&msg=Added%20location%20{name.replace(' ', '%20')}")
 
 
 @app.route("/locations-delete", methods=["POST"])
 def locations_delete():
     name = (request.form.get("name", "") or "").strip()
     delete_location(name)
-    return redirect(f"/tools?msgtype=danger&msg=Deleted%20location%20{name.replace(' ', '%20')}")
+    return redirect(request.script_root + f"/tools?msgtype=danger&msg=Deleted%20location%20{name.replace(' ', '%20')}")
 
 
 @app.route("/backup")
 def backup_db():
     if not os.path.exists(DB_PATH):
-        return redirect("/tools?msgtype=danger&msg=Database%20not%20found")
+        return redirect(request.script_root + "/tools?msgtype=danger&msg=Database%20not%20found")
     return send_file(DB_PATH, as_attachment=True, download_name="inventory.db")
 
 
@@ -1140,14 +1142,14 @@ def backup_db():
 def restore_db():
     f = request.files.get("dbfile")
     if not f:
-        return redirect("/tools?msgtype=danger&msg=No%20file%20selected")
+        return redirect(request.script_root + "/tools?msgtype=danger&msg=No%20file%20selected")
 
     f.save(UPLOAD_TMP)
 
     try:
         if os.path.getsize(UPLOAD_TMP) < 1000:
             os.remove(UPLOAD_TMP)
-            return redirect("/tools?msgtype=danger&msg=Uploaded%20file%20looks%20invalid")
+            return redirect(request.script_root + "/tools?msgtype=danger&msg=Uploaded%20file%20looks%20invalid")
     except Exception:
         pass
 
@@ -1155,9 +1157,9 @@ def restore_db():
         shutil.copy2(UPLOAD_TMP, DB_PATH)
         os.remove(UPLOAD_TMP)
     except Exception:
-        return redirect("/tools?msgtype=danger&msg=Restore%20failed")
+        return redirect(request.script_root + "/tools?msgtype=danger&msg=Restore%20failed")
 
-    return redirect("/tools?msgtype=ok&msg=Restore%20complete%20-%20restart%20the%20app")
+    return redirect(request.script_root + "/tools?msgtype=ok&msg=Restore%20complete%20-%20restart%20the%20app")
 
 
 # ============================================================
