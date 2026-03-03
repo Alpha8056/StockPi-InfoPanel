@@ -52,7 +52,7 @@ while true; do
 done
 
 # Kiosk mode
-read -rp "Set up Chromium kiosk mode (auto-launch browser on boot)? [y/N]: " KIOSK_ANSWER
+read -rp "Set up Chromium kiosk mode (auto-launch browser on boot)? [y/n]: " KIOSK_ANSWER
 SETUP_KIOSK=false
 [[ "$KIOSK_ANSWER" =~ ^[Yy]$ ]] && SETUP_KIOSK=true
 
