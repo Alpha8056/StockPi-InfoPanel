@@ -122,8 +122,8 @@ if [ ! -f "$PANEL_SETTINGS_PATH" ]; then
   cat > "$PANEL_SETTINGS_PATH" << 'JSONEOF'
 {
   "weather_enabled": true,
-  "rf_enabled": false,
-  "network_enabled": false,
+  "rf_enabled": true,
+  "network_enabled": true,
   "alerts_enabled": true
 }
 JSONEOF
