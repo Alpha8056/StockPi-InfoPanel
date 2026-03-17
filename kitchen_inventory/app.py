@@ -398,7 +398,7 @@ def _shelf_selector(current_zone, current_shelf, loc_map):
     """
 
 def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
-    url = f"/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    url = f"/kitchen/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
     if msg:
         url += f"&msg={msg.replace(' ', '%20')}"
     return url
@@ -492,7 +492,7 @@ def scan():
         return redirect(_home_url(zone, shelf, focus='scan', msg=f"Added {item[1]} (+1)", msgtype="ok"))
 
     # Unknown barcode → go to resolver UI (alias or new item)
-    return redirect(url_for("resolve_barcode_page", barcode=barcode, zone=zone, shelf=shelf))
+    return redirect("/kitchen" + url_for("resolve_barcode_page", barcode=barcode, zone=zone, shelf=shelf))
 
 
 @app.route("/new-item", methods=["POST"])
