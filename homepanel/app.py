@@ -62,6 +62,7 @@ WEATHER_SETTINGS_HTML = """
 """
 VERSION = "1.0.0"
 
+import os
 from flask import Flask, render_template_string, request, redirect, url_for
 
 import weather_client
