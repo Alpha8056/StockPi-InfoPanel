@@ -248,6 +248,16 @@ systemctl restart kitchen.service
 success "kitchen.service installed and started."
 
 # =============================================================================
+# SUDOERS — allow the app to restart services and git pull without a password
+# =============================================================================
+SUDOERS_FILE="/etc/sudoers.d/stockpi"
+cat > "$SUDOERS_FILE" <<EOF
+$REAL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart kitchen.service, /bin/systemctl restart infopanel.service
+EOF
+chmod 0440 "$SUDOERS_FILE"
+success "Sudoers entry added for $REAL_USER (service restarts)."
+
+# =============================================================================
 # DONE
 # =============================================================================
 echo ""
