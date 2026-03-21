@@ -151,7 +151,7 @@ def sync_storm_proximity(threshold_miles: float = DEFAULT_THRESHOLD_MILES) -> in
 
             title = f"{event} within {d:.1f} miles"
             headline = (props.get("headline") or "").strip()
-            msg = headline if headline else f"NWS alert is within {d:.1f} miles of ZIP 67601."
+            msg = headline if headline else f"NWS alert is within {d:.1f} miles of ZIP {weather_client.get_weather_zip()}."
 
             if alerts_db.raise_alert(
                 ts=now,

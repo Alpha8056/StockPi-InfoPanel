@@ -60,6 +60,8 @@ WEATHER_SETTINGS_HTML = """
 </body>
 </html>
 """
+VERSION = "1.0.0"
+
 from flask import Flask, render_template_string, request, redirect, url_for
 
 import weather_client
@@ -153,7 +155,7 @@ autoscan_thread = threading.Thread(target=rf_autoscan_loop, daemon=True)
 autoscan_thread.start()
 
 app = Flask(__name__)
-app.secret_key = "change-me-later"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me-stockpi-infopanel")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.wsgi_app = PrefixMiddleware(app.wsgi_app)
@@ -252,7 +254,8 @@ HOME_HTML = """
 <body>
 <div class="wrap">
   <div class="topbar">
-    <div class="title" style="margin:0">HomePanel</div>
+    <div class="title" style="margin:0">HomePanel <span style="font-size:13px;font-weight:400;color:var(--muted)">v{{ version }}</span></div>
+    <div style="font-size:13px;color:var(--muted)">Data as of {{ page_loaded_at }}</div>
   </div>
   <div class="grid grid2">
     {% if weather_enabled %}
@@ -267,7 +270,6 @@ HOME_HTML = """
           <div class="sub">
             Feels like: <b>{{ wx_feels }}</b> • High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> • Precip: <b>{{ wx_precip }}</b>
           </div>
-          <div class="sub">Updated: {{ wx_updated }}</div>
         {% else %}
           <div class="sub">Weather unavailable right now.</div>
           <div style="margin-top:14px"><span class="badge">No data</span></div>
@@ -310,9 +312,9 @@ HOME_HTML = """
       <a class="tile" href="/events">
         <div class="card">
           <div class="title">Alerts / Events</div>
-          <div class="kv"><div class="k">Alert Count</div><div class="v">—</div></div>
-          <div class="kv"><div class="k">Severe Weather</div><div class="v">—</div></div>
-          <div class="kv"><div class="k">Updated</div><div class="v">—</div></div>
+          <div class="kv"><div class="k">Alert Count</div><div class="v">{{ alerts_count }}</div></div>
+          <div class="kv"><div class="k">Severe Weather</div><div class="v">{{ alerts_severe }}</div></div>
+          <div class="kv"><div class="k">Updated</div><div class="v">{{ alerts_updated }}</div></div>
         </div>
       </a>
       {% endif %}
@@ -547,12 +549,26 @@ EVENTS_HTML = """
 
     <div class="card">
       <div class="title">Severe Weather</div>
-      <div class="sub">Wiring next: show active NWS alerts + storm proximity.</div>
+      {% set wx_alerts = active | selectattr("source", "equalto", "weather") | list %}
+      {% if wx_alerts %}
+        {% for a in wx_alerts %}
+          <div class="kv"><div class="k">{{ a.title }}</div><div class="v pill">{{ a.level }}</div></div>
+        {% endfor %}
+      {% else %}
+        <div class="sub">No active weather alerts.</div>
+      {% endif %}
     </div>
 
     <div class="card">
       <div class="title">Network</div>
-      <div class="sub">Wiring next: device/service down alerts from net monitor.</div>
+      {% set net_alerts = active | selectattr("source", "equalto", "network") | list %}
+      {% if net_alerts %}
+        {% for a in net_alerts %}
+          <div class="kv"><div class="k">{{ a.title }}</div><div class="v pill">{{ a.level }}</div></div>
+        {% endfor %}
+      {% else %}
+        <div class="sub">No active network alerts.</div>
+      {% endif %}
     </div>
   </div>
 
@@ -1181,6 +1197,22 @@ def _network_summary():
         return {"net_devices": "—", "net_offline": "—", "net_status": "—"}
 
 
+def _alerts_summary():
+    try:
+        alerts_db.init_db()
+        active = alerts_db.list_alerts(active_only=True, limit=200)
+        count = len(active)
+        has_severe = any(a.get("level") == "crit" or a.get("source") == "weather" for a in active)
+        last_ts = max((a.get("ts", 0) for a in active), default=0)
+        last_updated = time.strftime("%H:%M:%S", time.localtime(last_ts)) if last_ts else "—"
+        return {
+            "alerts_count": str(count) if count else "0",
+            "alerts_severe": "YES" if has_severe else "No",
+            "alerts_updated": last_updated,
+        }
+    except Exception:
+        return {"alerts_count": "—", "alerts_severe": "—", "alerts_updated": "—"}
+
 
 def _safe_hourly_rows(limit: int = 12):
     rows = []
@@ -1217,7 +1249,7 @@ def _safe_tomorrow_periods():
         forecast = weather_client.get_forecast()
         periods = forecast.get("properties", {}).get("periods", []) or []
         # Find tomorrow's periods (skip today/tonight)
-        tomorrow_periods = [p for p in periods if not p.get("name", "").lower().startswith("to")]
+        tomorrow_periods = [p for p in periods if p.get("name", "").lower() not in ("today", "tonight")]
         for p in tomorrow_periods[:2]:  # Day + Night
             t = p.get("temperature")
             u = p.get("temperatureUnit", "F")
@@ -1322,7 +1354,10 @@ def home():
     ctx["rf_wifi_count"] = str(len(RF_CACHE.get("wifi", []) or []))
     ctx["rf_ble_count"] = str(len(RF_CACHE.get("ble", []) or []))
     ctx["rf_last_scan"] = RF_CACHE.get("last_scan", "—") or "—"
-# Load panel settings
+    ctx["version"] = VERSION
+    ctx["page_loaded_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    ctx.update(_alerts_summary())
+    # Load panel settings
     panel_settings = settings.load_settings()
     ctx.update(panel_settings)
     return render_template_string(HOME_HTML, **ctx)
