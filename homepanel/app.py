@@ -77,7 +77,10 @@ alerts_db.init_db()
 import threading
 import time
 import subprocess
+import pathlib
 import settings
+
+REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 from flask import Response
 
 
@@ -1610,6 +1613,10 @@ def system_menu():
         <button type="submit">Restart Apps</button>
       </form>
 
+      <form method="post" action="/system/update" onsubmit="return confirm('Pull latest from GitHub and restart?')">
+        <button type="submit">Update from GitHub</button>
+      </form>
+
       <form method="post" action="/system/reboot">
         <button class="danger" type="submit">Reboot Pi</button>
       </form>
@@ -1703,6 +1710,82 @@ def system_reboot():
     s.textContent = t;
     if (t <= 0) { clearInterval(iv); location.href = '/'; }
   }, 1000);
+</script>
+</body></html>"""
+
+@app.route("/system/update", methods=["POST"])
+def system_update():
+    result = subprocess.run(
+        ["git", "-C", str(REPO_DIR), "pull"],
+        capture_output=True, text=True, timeout=60
+    )
+    output = (result.stdout + result.stderr).strip()
+    if result.returncode != 0:
+        return f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update Failed</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;}}
+  .card{{background:#151922;border:1px solid #2a3142;border-radius:16px;
+        padding:40px 48px;text-align:center;max-width:480px;width:90%;}}
+  h1{{font-size:22px;margin-bottom:12px;color:#f87171;}}
+  pre{{text-align:left;background:#0b0f14;border:1px solid #2a3142;border-radius:8px;
+       padding:12px;font-size:13px;color:#a8b0c2;overflow-x:auto;margin:16px 0;white-space:pre-wrap;}}
+  a{{color:#60a5fa;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Update Failed</h1>
+  <pre>{output}</pre>
+  <a href="/system/">Back</a>
+</div>
+</body></html>"""
+
+    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
+    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Updating...</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;}}
+  .card{{background:#151922;border:1px solid #2a3142;border-radius:16px;
+        padding:40px 48px;text-align:center;max-width:480px;width:90%;}}
+  h1{{font-size:22px;margin-bottom:12px;}}
+  pre{{text-align:left;background:#0b0f14;border:1px solid #2a3142;border-radius:8px;
+       padding:12px;font-size:13px;color:#a8b0c2;overflow-x:auto;margin:16px 0;white-space:pre-wrap;}}
+  .spinner{{width:40px;height:40px;border:3px solid #2a3142;
+           border-top-color:#4CAF50;border-radius:50%;
+           animation:spin 0.8s linear infinite;margin:0 auto 20px;}}
+  @keyframes spin{{to{{transform:rotate(360deg)}}}}
+  .countdown{{font-size:36px;font-weight:900;color:#4CAF50;margin-bottom:8px;}}
+  .hint{{color:#a8b0c2;font-size:13px;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner"></div>
+  <h1>Update Applied</h1>
+  <pre>{output}</pre>
+  <div class="countdown" id="cd">8</div>
+  <div class="hint">Restarting services, redirecting in <span id="s">8</span> seconds...</div>
+</div>
+<script>
+  let t = 8;
+  const cd = document.getElementById('cd');
+  const s = document.getElementById('s');
+  const iv = setInterval(() => {{
+    t--;
+    cd.textContent = t;
+    s.textContent = t;
+    if (t <= 0) {{ clearInterval(iv); location.href = '/'; }}
+  }}, 1000);
 </script>
 </body></html>"""
 
