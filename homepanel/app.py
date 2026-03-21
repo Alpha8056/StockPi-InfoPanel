@@ -1716,7 +1716,7 @@ def system_reboot():
 @app.route("/system/update", methods=["POST"])
 def system_update():
     result = subprocess.run(
-        ["git", "-C", str(REPO_DIR), "pull"],
+        ["/usr/bin/git", "-C", str(REPO_DIR), "pull"],
         capture_output=True, text=True, timeout=60
     )
     output = (result.stdout + result.stderr).strip()
