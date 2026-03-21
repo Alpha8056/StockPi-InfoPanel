@@ -158,10 +158,10 @@ body{
   <div class="card">
     <div class="systemRow">
       <form method="post" action="/system/restart" style="flex:1;margin:0;">
-        <button type="submit" class="sysBtn">Restart Apps</button>
+        <button type="submit" class="sysBtn" onclick="return confirm('Restart the apps?')">Restart Apps</button>
       </form>
       <form method="post" action="/system/reboot" style="flex:1;margin:0;">
-        <button type="submit" class="sysBtn">Reboot Pi</button>
+        <button type="submit" class="sysBtn" onclick="return confirm('Reboot the Pi?')">Reboot Pi</button>
       </form>
     </div>
   </div>
@@ -177,7 +177,7 @@ function tick(){
   document.getElementById('time').textContent=
     d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   document.getElementById('date').textContent=
-    d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
+    d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
 }
 tick(); setInterval(tick,1000);
 document.getElementById('hostline').textContent=location.host;
