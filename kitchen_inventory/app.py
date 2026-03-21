@@ -1,7 +1,10 @@
 # ============================================================
 # SECTION: Imports
 # ============================================================
+VERSION = "1.0.0"
+
 import os
+import time
 import shutil
 import io
 import socket
@@ -47,6 +50,7 @@ from inventory import (
     get_inventory,
     get_grocery_list,
     lookup_name_by_barcode,
+    update_item_name,
 
     # Smart / Debug
     set_low_threshold,
@@ -403,6 +407,12 @@ def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
         url += f"&msg={msg.replace(' ', '%20')}"
     return url
 
+def _home_href(zone, shelf, focus='scan', msg="", msgtype="ok"):
+    url = f"/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    if msg:
+        url += f"&msg={msg.replace(' ', '%20')}"
+    return url
+
 
 # ============================================================
 # SECTION: Routes — Home + Scan
@@ -427,12 +437,13 @@ def home():
     </script>
     """
 
+    page_loaded_at = time.strftime("%Y-%m-%d %H:%M:%S")
     return f"""
     {_styles()}{_auto_hide_banner_js()}{focus_js}
     <div class="wrap"><div class="container">
       <header>
-        <div><h1>StockPi</h1><div class="sub">Fast scan, local-first, touchscreen-friendly</div></div>
-        <div class="muted">Location <span class="chip">{location}</span></div>
+        <div><h1>StockPi <span style="font-size:13px;font-weight:400;opacity:0.6">v{VERSION}</span></h1><div class="sub">Fast scan, local-first, touchscreen-friendly</div></div>
+        <div class="muted" style="text-align:right">Location <span class="chip">{location}</span><br><span style="font-size:12px">Data as of {page_loaded_at}</span></div>
       </header>
 
       {status_html}
@@ -625,7 +636,7 @@ def move_page():
         </form>
 
         <div class="row">
-          <a class="btn" href="{_home_url(zone, shelf, focus='scan')}">Back</a>
+          <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Back</a>
         </div>
       </div>
     </div></div>
@@ -749,6 +760,8 @@ def inventory_page():
               <button class="btn">Set</button>
             </form>
 
+            <a class="btn" href="/edit?barcode={barcode}">Edit</a>
+
             <form class="inline" method="post" action="/inventory-delete">
               <input type="hidden" name="barcode" value="{barcode}">
               <button class="btn btn-danger">Delete</button>
@@ -850,6 +863,54 @@ def inventory_delete():
     return redirect(f"/kitchen/inventory?msgtype=danger&msg=Deleted%20{item[1].replace(' ', '%20')}")
 
 
+@app.route("/edit")
+def edit_item_page():
+    barcode = (request.args.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
+    _, name, location, qty, low = item
+    status_html = _page_status_html()
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Edit Item</h1><div class="sub">Update name</div></div>
+        <a class="btn" href="/inventory">Back</a>
+      </header>
+      {status_html}
+      <div class="card">
+        <form method="post" action="/edit-save">
+          <input type="hidden" name="barcode" value="{barcode}">
+          <div class="fieldRow" style="margin-bottom:14px;">
+            <label style="color:var(--muted);font-size:14px;">Item Name</label>
+          </div>
+          <div class="fieldRow">
+            <input type="text" name="name" value="{name}" placeholder="Item name" required>
+            <button class="btn btn-wide" type="submit">Save</button>
+          </div>
+          <div class="muted" style="margin-top:10px;">Barcode: <span class="chip mono">{barcode}</span> &nbsp; Location: <span class="chip">{location}</span></div>
+        </form>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/edit-save", methods=["POST"])
+def edit_item_save():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    new_name = (request.form.get("name", "") or "").strip()
+    if not barcode or not new_name:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Name%20required")
+    try:
+        update_item_name(barcode, new_name)
+        return redirect(f"/kitchen/inventory?msgtype=ok&msg=Renamed%20to%20{new_name.replace(' ', '%20')}")
+    except Exception as e:
+        return redirect(f"/kitchen/inventory?msgtype=danger&msg=Error%3A%20{str(e).replace(' ', '%20')}")
+
+
 # ============================================================
 # SECTION: Routes — Low Stock + Stats
 # ============================================================
@@ -879,7 +940,7 @@ def low_stock_page():
     <div class="wrap"><div class="container">
       <header>
         <div><h1>Low Stock</h1><div class="sub">Items where 0 &lt; qty ≤ low threshold</div></div>
-        <a class="btn" href="{_home_url(zone, shelf, focus='scan')}">Back</a>
+        <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Back</a>
       </header>
 
       {status_html}
@@ -941,7 +1002,7 @@ def stats_page():
         <div class="row muted">Adds: <span class="chip">{adds_28}</span> Removes: <span class="chip">{rem_28}</span></div>
         <div class="row muted">Estimated removes per week: <span class="chip">{per_week}</span></div>
         <div class="row muted">Estimated days left (based on removes/day): <span class="chip">{days_left_text}</span></div>
-        <div class="muted">Tip: This becomes more accurate after you’ve used it for a few weeks.</div>
+        <div class="muted">Tip: This becomes more accurate after you've used it for a few weeks.</div>
       </div>
     </div></div>
     """
@@ -986,11 +1047,10 @@ def grocery_list_page():
 
       <div class="card">
         <div class="fieldRow">
-          <a class="btn btn-wide" href="{share_view}">Send to Phone (QR)</a>
           <a class="btn btn-wide" href="{export_txt}">Export as Text</a>
           <a class="btn btn-wide" href="{print_view}">Print / Save as PDF</a>
         </div>
-        <div class="muted row">Tip: On your phone, “Print / Save as PDF” creates an offline shopping list.</div>
+        <div class="muted row">Tip: On your phone, "Print / Save as PDF" creates an offline shopping list.</div>
       </div>
 
       <div class="card">
@@ -1272,7 +1332,7 @@ pip install qrcode[pil]</pre>
 
         <div class="row"></div>
 
-        <div class="muted">If QR doesn’t work, open this link on your phone:</div>
+        <div class="muted">If QR doesn't work, open this link on your phone:</div>
         <div class="chip" style="user-select:all; display:inline-block; margin-top:10px;">{share_url}</div>
       </div>
     </div></div>
@@ -1493,25 +1553,17 @@ def print_grocery():
         rows = "<li style='margin:10px 0;font-size:20px;'>(Empty)</li>"
 
 
-    return f"""<!doctype html>
-<html><head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>StockPi Grocery List</title>
-  <style>
-    :root{{--bg:#0f1115;--text:#e7e9ee;--muted:#a8b0c2;--border:#2a3142;}}
-    *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;padding:24px;}}
-    h1{{font-size:24px;margin-bottom:8px;}}
-    .sub{{color:var(--muted);font-size:14px;margin-bottom:20px;}}
-    ul{{padding-left:22px;}} li{{margin:10px 0;font-size:20px;}}
-    @media print{{body{{background:#fff;color:#000;}}}}
-  </style>
-</head><body>
-  <h1>StockPi Grocery List</h1>
-  <div class="sub">Print this page or save as PDF.</div>
-  <ul>{rows}</ul>
-</body></html>"""
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <h1 style="margin-bottom:8px;">StockPi Grocery List</h1>
+      <div class="sub" style="margin-bottom:20px;">Print this page or save as PDF.</div>
+      <div class="card">
+        <ul style="padding-left:22px;">
+          {rows}
+        </ul>
+      </div>
+    </div></div>"""
 
 
 
@@ -1522,39 +1574,34 @@ def print_inventory():
     for barcode, name, location, qty, low in items:
         rows += f"""
           <tr>
-            <td style="padding:10px;border-bottom:1px solid #ddd;">{name}</td>
-            <td style="padding:10px;border-bottom:1px solid #ddd;">{location}</td>
-            <td style="padding:10px;border-bottom:1px solid #ddd; font-weight:700;">{qty}</td>
-            <td style="padding:10px;border-bottom:1px solid #ddd; color:#777;">{low if low else 0}</td>
-            <td style="padding:10px;border-bottom:1px solid #ddd; color:#777;">{barcode}</td>
+            <td>{name}</td>
+            <td>{location}</td>
+            <td><b>{qty}</b></td>
+            <td class="muted">{low if low else 0}</td>
+            <td class="muted">{barcode}</td>
           </tr>
         """
     if not rows:
-        rows = "<tr><td colspan='5' style='padding:10px;'>(Empty)</td></tr>"
+        rows = "<tr><td colspan='5'>(Empty)</td></tr>"
 
     return f"""
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>StockPi Inventory</title>
-    </head>
-    <body style="font-family:system-ui,Segoe UI,Roboto,Arial; padding:18px;">
-      <h1 style="margin:0 0 12px 0;">StockPi Inventory</h1>
-      <div style="color:#555; margin-bottom:14px;">Print this page or “Save as PDF” on your phone.</div>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr>
-          <th style="text-align:left;padding:10px;border-bottom:2px solid #333;">Item</th>
-          <th style="text-align:left;padding:10px;border-bottom:2px solid #333;">Location</th>
-          <th style="text-align:left;padding:10px;border-bottom:2px solid #333;">Qty</th>
-          <th style="text-align:left;padding:10px;border-bottom:2px solid #333;">Low</th>
-          <th style="text-align:left;padding:10px;border-bottom:2px solid #333;">Barcode</th>
-        </tr>
-        {rows}
-      </table>
-    </body>
-    </html>
-    """
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <h1 style="margin-bottom:8px;">StockPi Inventory</h1>
+      <div class="sub" style="margin-bottom:14px;">Print this page or Save as PDF on your phone.</div>
+      <div class="card">
+        <table>
+          <tr>
+            <th>Item</th>
+            <th>Location</th>
+            <th>Qty</th>
+            <th>Low</th>
+            <th>Barcode</th>
+          </tr>
+          {rows}
+        </table>
+      </div>
+    </div></div>"""
 
 
 @app.route("/qr")

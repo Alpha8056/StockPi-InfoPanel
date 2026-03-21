@@ -777,3 +777,19 @@ def delete_location(name: str):
         conn.commit()
     finally:
         conn.close()
+
+
+# ============================================================
+# SECTION: Edit Item
+# ============================================================
+
+def update_item_name(barcode: str, new_name: str) -> None:
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE items SET name = ? WHERE barcode = ?", (new_name.strip(), barcode))
+        if cur.rowcount == 0:
+            raise ValueError("Item not found")
+        conn.commit()
+    finally:
+        conn.close()
