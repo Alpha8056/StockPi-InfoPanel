@@ -1746,6 +1746,7 @@ def system_update():
 </body></html>"""
 
     subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
+    time.sleep(5)
     subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8">
