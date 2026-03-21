@@ -160,6 +160,9 @@ body{
       <form method="post" action="/system/restart" style="flex:1;margin:0;">
         <button type="submit" class="sysBtn" onclick="return confirm('Restart the apps?')">Restart Apps</button>
       </form>
+      <form method="post" action="/system/update" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn" onclick="return confirm('Pull latest from GitHub and restart?')">Update</button>
+      </form>
       <form method="post" action="/system/reboot" style="flex:1;margin:0;">
         <button type="submit" class="sysBtn" onclick="return confirm('Reboot the Pi?')">Reboot Pi</button>
       </form>
