@@ -1092,6 +1092,13 @@ SETTINGS_HTML = """
       <button type="submit" class="btn">Save Settings</button>
     </form>
     <a href="settings/weather" class="btn" style="margin-top:10px; display:inline-block;">Weather Section Settings</a>
+
+    <div class="card" style="margin-top:20px;">
+      <div class="setting-row">
+        <span>Version</span>
+        <span style="color: var(--muted); font-family: monospace;">{{ git_version }}</span>
+      </div>
+    </div>
   </div>
 </body>
 </html>
@@ -1816,6 +1823,15 @@ def weather_settings_update():
 def settings_page():
     current_settings = settings.load_settings()
     current_settings["weather_zip"] = weather_client.get_weather_zip()
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        git_version = subprocess.check_output(
+            ["git", "describe", "--tags", "--always"],
+            cwd=repo_dir, stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        git_version = "unknown"
+    current_settings["git_version"] = git_version
     return render_template_string(SETTINGS_HTML, **current_settings)
 
 @app.post("/settings/update")
