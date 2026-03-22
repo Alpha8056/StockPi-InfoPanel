@@ -1824,10 +1824,9 @@ def settings_page():
     current_settings = settings.load_settings()
     current_settings["weather_zip"] = weather_client.get_weather_zip()
     try:
-        repo_dir = os.path.dirname(os.path.abspath(__file__))
         git_version = subprocess.check_output(
-            ["git", "describe", "--tags", "--always"],
-            cwd=repo_dir, stderr=subprocess.DEVNULL
+            ["/usr/bin/git", "-C", str(REPO_DIR), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
         ).decode().strip()
     except Exception:
         git_version = "unknown"
