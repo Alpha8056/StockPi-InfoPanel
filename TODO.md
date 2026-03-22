@@ -5,29 +5,29 @@
 - Card-level feature flags (weather, RF, network, alerts) — toggle in info panel settings
 - Settings page built into info panel side
 - Fixed broken WEATHER_HTML structure (duplicate body tags)
+- Launcher Restart Apps, Update, and Reboot Pi buttons — wired up with confirmation dialogs
+- Settings button on launcher page (top-right, links to /panel/settings)
+- Auto-boot infopanel on reboot — setup.sh runs `systemctl enable infopanel.service`
+- ZIP code editable in Settings page (/panel/settings) — also set during install via setup.sh
+- Weather card section ordering — priority 1–5 or hidden, configurable in Weather Section Settings
 
 ---
 
 ## 🔧 In Progress / Next Up
 
 ### Launcher Page
-- [ ] **Fix Restart Apps & Reboot Pi buttons** — currently link to `/system/restart` and `/system/reboot` but no backend exists to handle them. Need a small Flask `launcher_app.py` to process these.
-- [ ] **Move Settings button to launcher page** — currently buried inside the info panel side (`/settings`). Should be accessible from the main home screen.
 - [ ] **Launcher-level feature flags** — show/hide Kitchen Inventory and/or Info Panel buttons based on config so you can run one app without the other appearing.
 
 ### Info Panel
-- [ ] **Auto-boot info panel on reboot** — `infopanel.service` exists but is not enabled. Run `sudo systemctl enable infopanel.service` to fix.
-- [ ] **ZIP code setting in Settings page** — currently ZIP is hardcoded in `config.json`. Add a ZIP code input box in the settings UI so anyone who clones the repo can set their location without editing files manually.
-- [ ] **Card layout customization** — ability to reorder or resize the cards on the info panel home screen (weather, RF, network, alerts).
-- [ ] **Weather card layout customization** — choose which sections appear inside the weather page (radar, hourly table, tomorrow's forecast, alerts, storm proximity) and in what order.
+- [ ] **Card layout customization** — ability to reorder or hide the cards on the info panel home screen (weather, RF, network, alerts).
+- [ ] **Next-day forecast on home screen weather card** — surface a summary of tomorrow's forecast on the main panel card (detail page already has it).
 
 ---
 
 ## 💡 Future Ideas
-- Next day weather forecast on home screen weather card summary (not just detail page)
-- BLE scan results fully wired up on RF page
 - Alerts/Events page: wire in active NWS alerts + storm proximity summary
 - Alerts/Events page: wire in network/device down alerts
+- BLE scan results on RF page (or remove RF/BLE/Network pages entirely — undecided)
 
 ---
 
