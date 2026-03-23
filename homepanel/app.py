@@ -246,6 +246,16 @@ BASE_CSS = """
   textarea{ min-height:120px; resize:vertical; }
   .full{ grid-column: 1 / -1; }
   .help{ color:var(--muted); font-size:13px; line-height:1.35; }
+
+  @media (max-width: 600px) {
+    .grid2{ grid-template-columns: 1fr; }
+    .row2{ grid-template-columns: 1fr; }
+    .cards{ grid-template-columns: 1fr; }
+    .formGrid{ grid-template-columns: 1fr; }
+    .topbar{ flex-wrap: wrap; }
+    .big{ font-size:40px; }
+    table{ display:block; overflow-x:auto; }
+  }
 </style>
 """
 
@@ -1089,6 +1099,34 @@ SETTINGS_HTML = """
         </div>
       </div>
       
+      <div class="card">
+        <h2 style="margin-bottom: 15px;">Launcher Buttons</h2>
+
+        <div class="setting-row">
+          <span>Show Kitchen Inventory Button</span>
+          <label class="toggle">
+            <input type="checkbox" name="show_kitchen_button" {% if show_kitchen_button %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <span>Show Info Panel Button</span>
+          <label class="toggle">
+            <input type="checkbox" name="show_info_panel_button" {% if show_info_panel_button %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <span>Show Weather on Launcher</span>
+          <label class="toggle">
+            <input type="checkbox" name="show_weather_on_launcher" {% if show_weather_on_launcher %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <button type="submit" class="btn">Save Settings</button>
     </form>
     <a href="settings/weather" class="btn" style="margin-top:10px; display:inline-block;">Weather Section Settings</a>
@@ -1592,6 +1630,65 @@ def events_page():
         updated=now,
     )
 
+@app.get("/api/launcher")
+def api_launcher():
+    import json as _json
+    panel_settings = settings.load_settings()
+
+    data = {
+        "show_kitchen_button": panel_settings.get("show_kitchen_button", True),
+        "show_info_panel_button": panel_settings.get("show_info_panel_button", True),
+        "show_weather_on_launcher": panel_settings.get("show_weather_on_launcher", False),
+    }
+
+    if data["show_weather_on_launcher"]:
+        weather_sections = panel_settings.get("weather_sections", {
+            "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
+        })
+        ordered = [k for k, v in sorted(weather_sections.items(), key=lambda x: (x[1] == 0, x[1])) if v != 0]
+        data["weather_sections"] = ordered
+
+        wx = _safe_get_weather_summary()
+        data["weather"] = {
+            "ok": wx["wx_ok"],
+            "location": wx["wx_location"],
+            "temp": wx["wx_temp"],
+            "condition": wx["wx_condition"],
+            "feels": wx["wx_feels"],
+            "hi": wx["wx_hi"],
+            "lo": wx["wx_lo"],
+            "precip": wx["wx_precip"],
+            "updated": wx["wx_updated"],
+        }
+
+        if "hourly" in ordered:
+            data["hourly"] = _safe_hourly_rows(12)
+        if "alerts" in ordered:
+            data["alerts"] = _safe_alerts(5)
+        if "forecast" in ordered:
+            data["forecast"] = _safe_tomorrow_periods()
+        if "radar" in ordered:
+            try:
+                points = weather_client.get_points()
+                data["radar_station"] = points.get("properties", {}).get("radarStation", "KDDC")
+            except Exception:
+                data["radar_station"] = "KDDC"
+
+        try:
+            alerts_db.init_db()
+            active = alerts_db.list_alerts(active_only=True, limit=200)
+            prox = [a for a in active if str(a.get("key", "")).startswith("wxprox:")]
+            if prox:
+                prox.sort(key=lambda x: int(x.get("ts", 0)), reverse=True)
+                data["storm_banner"] = prox[0].get("title") or "Storm nearby"
+            else:
+                data["storm_banner"] = None
+        except Exception:
+            data["storm_banner"] = None
+
+    return Response(_json.dumps(data), mimetype="application/json")
+
+
 # ============================
 # System controls (behind nginx)
 # ============================
@@ -1879,6 +1976,9 @@ def settings_update():
     current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
     current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
     current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
+    current_settings["show_kitchen_button"] = request.form.get("show_kitchen_button") == "on"
+    current_settings["show_info_panel_button"] = request.form.get("show_info_panel_button") == "on"
+    current_settings["show_weather_on_launcher"] = request.form.get("show_weather_on_launcher") == "on"
     
     settings.save_settings(current_settings)
     return redirect("/")  # Changed from settings_page to home

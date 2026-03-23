@@ -8,6 +8,9 @@ DEFAULT_SETTINGS = {
     "rf_enabled": True,
     "network_enabled": True,
     "alerts_enabled": True,
+    "show_kitchen_button": True,
+    "show_info_panel_button": True,
+    "show_weather_on_launcher": False,
 }
 
 def load_settings():
