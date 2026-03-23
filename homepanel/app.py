@@ -1186,7 +1186,13 @@ def _safe_get_weather_summary():
         hi = f"{int(max(temps))}°{temp_u}" if temps else "—"
         lo = f"{int(min(temps))}°{temp_u}" if temps else "—"
 
-        updated = props.get("updated", "")
+        raw_updated = props.get("updateTime") or props.get("updated", "")
+        try:
+            import datetime
+            dt = datetime.datetime.fromisoformat(raw_updated)
+            updated = dt.strftime("%-I:%M %p")
+        except Exception:
+            updated = raw_updated or "—"
         location = weather_client.get_weather_zip()
 
         return {
@@ -1198,7 +1204,7 @@ def _safe_get_weather_summary():
             "wx_hi": hi,
             "wx_lo": lo,
             "wx_precip": precip_txt,
-            "wx_updated": updated or "—",
+            "wx_updated": updated,
         }
     except Exception:
         return {
