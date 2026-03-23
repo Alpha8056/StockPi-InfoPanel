@@ -1189,7 +1189,7 @@ def _safe_get_weather_summary():
         raw_updated = props.get("updateTime") or props.get("updated", "")
         try:
             import datetime
-            dt = datetime.datetime.fromisoformat(raw_updated)
+            dt = datetime.datetime.fromisoformat(raw_updated).astimezone()
             updated = dt.strftime("%-I:%M %p")
         except Exception:
             updated = raw_updated or "—"
