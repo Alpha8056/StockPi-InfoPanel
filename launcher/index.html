@@ -134,6 +134,36 @@ body{
   .time{ font-size:42px; }
   .btnTitle{ font-size:22px; }
 }
+
+/* Weather sections on launcher */
+#weatherSection{ display:flex; flex-direction:column; gap:18px; }
+.wxCard{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:20px;
+  box-shadow:0 10px 30px var(--shadow);
+}
+.wxTitle{ font-size:18px; font-weight:900; margin-bottom:10px; }
+.wxTemp{ font-size:36px; font-weight:900; line-height:1; }
+.wxCond{ font-size:16px; font-weight:700; color:var(--muted); }
+.wxSub{ color:var(--muted); font-size:14px; margin-top:6px; }
+.wxTableWrap{ overflow-x:auto; margin-top:10px; }
+.wxTable{ width:100%; border-collapse:collapse; }
+.wxTable th,.wxTable td{ padding:8px 10px; border-bottom:1px solid var(--border); font-size:14px; text-align:left; }
+.wxTable th{ color:var(--muted); font-weight:900; }
+.wxTable tr:last-child td{ border-bottom:none; }
+.wxAlertRow{ padding:10px 0; border-top:1px solid var(--border); }
+.wxAlertRow:first-of-type{ border-top:none; }
+.wxAlertHead{ font-weight:900; }
+.wxForecastRow{ padding:10px 0; border-top:1px solid var(--border); }
+.wxForecastRow:first-of-type{ border-top:none; }
+.wxForecastHead{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.wxForecastName{ font-weight:900; font-size:16px; }
+.wxForecastTemp{ font-size:20px; font-weight:900; }
+.wxDetail{ font-size:12px; color:var(--muted); margin-top:4px; }
+.wxRadarWrap{ border-radius:12px; overflow:hidden; border:1px solid var(--border); margin-top:10px; }
+.wxStorm{ border-color:rgba(245,158,11,.45) !important; }
 </style>
 </head>
 
@@ -147,14 +177,14 @@ body{
     <div class="date" id="date">---</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="kitchenCard">
     <a class="btn" href="/kitchen/">
       <div class="btnTitle">Kitchen Inventory</div>
       <div class="btnDesc">Scan • Stock • Grocery list</div>
     </a>
   </div>
 
-  <div class="card">
+  <div class="card" id="panelCard">
     <a class="btn" href="/panel/">
       <div class="btnTitle">Info Panel</div>
       <div class="btnDesc">Weather • Network • RF • Alerts</div>
@@ -175,6 +205,8 @@ body{
     </div>
   </div>
 
+  <div id="weatherSection"></div>
+
   <div class="footer" id="hostline"></div>
 
 </div>
@@ -190,6 +222,92 @@ function tick(){
 }
 tick(); setInterval(tick,1000);
 document.getElementById('hostline').textContent=location.host;
+
+function esc(s){
+  return String(s??'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function buildWeather(d){
+  const wx = d.weather || {};
+  let html = '';
+  for(const section of (d.weather_sections || [])){
+    if(section === 'current'){
+      html += `<div class="wxCard"><div class="wxTitle">Weather (${esc(wx.location)})</div>`;
+      if(wx.ok){
+        html += `<div class="wxTemp">${esc(wx.temp)} <span class="wxCond">${esc(wx.condition)}</span></div>
+          <div class="wxSub">Feels like: <b>${esc(wx.feels)}</b> &bull; High/Low: <b>${esc(wx.hi)}</b>/<b>${esc(wx.lo)}</b> &bull; Precip: <b>${esc(wx.precip)}</b></div>
+          <div class="wxSub">Updated: ${esc(wx.updated)}</div>`;
+      } else {
+        html += `<div class="wxSub">Weather unavailable.</div>`;
+      }
+      html += `</div>`;
+    }
+    else if(section === 'hourly' && d.hourly && d.hourly.length){
+      html += `<div class="wxCard"><div class="wxTitle">Hourly Forecast (Next 12 Hours)</div>
+        <div class="wxTableWrap"><table class="wxTable">
+          <thead><tr><th>Time</th><th>Temp</th><th>Condition</th><th>Precip</th><th>Wind</th></tr></thead>
+          <tbody>`;
+      for(const r of d.hourly)
+        html += `<tr><td>${esc(r.time)}</td><td><b>${esc(r.temp)}</b></td><td>${esc(r.cond)}</td><td>${esc(r.precip)}</td><td>${esc(r.wind)}</td></tr>`;
+      html += `</tbody></table></div></div>`;
+    }
+    else if(section === 'alerts'){
+      const alerts = d.alerts || [];
+      html += `<div class="wxCard"><div class="wxTitle">Severe Weather &amp; Alerts</div>`;
+      if(alerts.length){
+        for(const a of alerts)
+          html += `<div class="wxAlertRow"><div class="wxAlertHead">${esc(a.headline)}</div>
+            <div class="wxSub">${esc(a.when)}</div>
+            <div style="margin-top:6px">${esc(a.desc)}</div></div>`;
+      } else {
+        html += `<div class="wxSub">No active alerts.</div>`;
+      }
+      html += `</div>`;
+    }
+    else if(section === 'forecast' && d.forecast && d.forecast.length){
+      html += `<div class="wxCard"><div class="wxTitle">Tomorrow's Forecast</div>`;
+      for(const p of d.forecast)
+        html += `<div class="wxForecastRow">
+          <div class="wxForecastHead">
+            <div class="wxForecastName">${esc(p.name)}</div>
+            <div class="wxForecastTemp">${esc(p.temp)}</div>
+          </div>
+          <div class="wxSub">${esc(p.cond)}</div>
+          <div class="wxSub">Precip: <b>${esc(p.precip)}</b> &bull; Wind: <b>${esc(p.wind)}</b></div>
+          <div class="wxDetail">${esc(p.detail)}</div>
+        </div>`;
+      html += `</div>`;
+    }
+    else if(section === 'radar' && d.radar_station){
+      html += `<div class="wxCard"><div class="wxTitle">Radar</div>
+        <div class="wxSub">Animated loop</div>
+        <div class="wxRadarWrap">
+          <img src="https://radar.weather.gov/ridge/standard/${esc(d.radar_station)}_loop.gif" alt="Radar" style="width:100%;display:block;" />
+        </div></div>`;
+    }
+  }
+  if(d.storm_banner){
+    html += `<div class="wxCard wxStorm"><div class="wxTitle">Storm Proximity</div>
+      <div style="margin-top:6px;font-weight:900">${esc(d.storm_banner)}</div></div>`;
+  }
+  return html;
+}
+
+async function loadConfig(){
+  try {
+    const r = await fetch('/panel/api/launcher');
+    if(!r.ok) return;
+    const d = await r.json();
+    if(!d.show_kitchen_button)
+      document.getElementById('kitchenCard').style.display='none';
+    if(!d.show_info_panel_button)
+      document.getElementById('panelCard').style.display='none';
+    if(d.show_weather_on_launcher && d.weather_sections && d.weather_sections.length)
+      document.getElementById('weatherSection').innerHTML = buildWeather(d);
+  } catch(e){}
+}
+loadConfig();
 </script>
 
 </body>
