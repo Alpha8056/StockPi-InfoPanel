@@ -135,9 +135,6 @@ body{
   .btnTitle{ font-size:22px; }
 }
 
-/* Hide app buttons until config loads to prevent flash */
-#kitchenCard, #panelCard { display:none; }
-
 /* Weather sections on launcher */
 #weatherSection{ display:flex; flex-direction:column; gap:18px; }
 .wxCard{
@@ -300,24 +297,15 @@ function buildWeather(d){
 async function loadConfig(){
   try {
     const r = await fetch('/panel/api/launcher');
-    if(!r.ok){
-      // API down — show both buttons as fallback
-      document.getElementById('kitchenCard').style.display='';
-      document.getElementById('panelCard').style.display='';
-      return;
-    }
+    if(!r.ok) return;
     const d = await r.json();
-    if(d.show_kitchen_button)
-      document.getElementById('kitchenCard').style.display='';
-    if(d.show_info_panel_button)
-      document.getElementById('panelCard').style.display='';
+    if(!d.show_kitchen_button)
+      document.getElementById('kitchenCard').style.display='none';
+    if(!d.show_info_panel_button)
+      document.getElementById('panelCard').style.display='none';
     if(d.show_weather_on_launcher && d.weather_sections && d.weather_sections.length)
       document.getElementById('weatherSection').innerHTML = buildWeather(d);
-  } catch(e){
-    // API unreachable — show both buttons as fallback
-    document.getElementById('kitchenCard').style.display='';
-    document.getElementById('panelCard').style.display='';
-  }
+  } catch(e){}
 }
 loadConfig();
 </script>
