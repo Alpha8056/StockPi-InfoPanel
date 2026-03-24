@@ -130,6 +130,20 @@ def get_forecast_hourly() -> Dict[str, Any]:
     return _get_json(forecast_hourly_url, ttl_seconds=5 * 60, cache_key=f"hourly_{lat:.4f}_{lon:.4f}")
 
 
+def get_hourly_fetched_at() -> Optional[float]:
+    """Return the epoch timestamp of when the hourly forecast was last fetched, or None."""
+    try:
+        lat, lon = resolve_zip_to_latlon()
+        path = _cache_path(f"hourly_{lat:.4f}_{lon:.4f}")
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return float(payload.get("fetched_at", 0)) or None
+    except Exception:
+        return None
+
+
 def get_forecast() -> Dict[str, Any]:
     points = get_points()
     forecast_url = points.get("properties", {}).get("forecast")

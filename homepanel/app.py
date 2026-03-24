@@ -1192,13 +1192,15 @@ def _safe_get_weather_summary():
         hi = f"{int(max(temps))}°{temp_u}" if temps else "—"
         lo = f"{int(min(temps))}°{temp_u}" if temps else "—"
 
-        raw_updated = props.get("updateTime") or props.get("updated", "")
         try:
             import datetime
-            dt = datetime.datetime.fromisoformat(raw_updated).astimezone()
-            updated = dt.strftime("%-I:%M %p")
+            fetched_at = weather_client.get_hourly_fetched_at()
+            if fetched_at:
+                updated = datetime.datetime.fromtimestamp(fetched_at).strftime("%-I:%M %p")
+            else:
+                updated = "—"
         except Exception:
-            updated = raw_updated or "—"
+            updated = "—"
         location = weather_client.get_weather_zip()
 
         return {
