@@ -1692,7 +1692,9 @@ def api_launcher():
         except Exception:
             data["storm_banner"] = None
 
-    return Response(_json.dumps(data), mimetype="application/json")
+    resp = Response(_json.dumps(data), mimetype="application/json")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ============================
