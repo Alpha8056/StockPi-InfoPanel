@@ -1172,7 +1172,13 @@ def _safe_get_weather_summary():
         if not periods:
             raise ValueError("No hourly periods returned")
 
-        now = periods[0]
+        import datetime
+        now_dt = datetime.datetime.now().astimezone()
+        now = next(
+            (p for p in periods if datetime.datetime.fromisoformat(p["startTime"]) <= now_dt
+             <= datetime.datetime.fromisoformat(p["endTime"])),
+            periods[0]
+        )
         temp_f = now.get("temperature")
         temp_u = now.get("temperatureUnit", "F")
         condition = now.get("shortForecast", "Unknown")
