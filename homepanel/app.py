@@ -1278,8 +1278,11 @@ def _alerts_summary():
 def _safe_hourly_rows(limit: int = 12):
     rows = []
     try:
+        import datetime
+        now_dt = datetime.datetime.now().astimezone()
         hourly = weather_client.get_forecast_hourly()
         periods = hourly.get("properties", {}).get("periods", []) or []
+        periods = [p for p in periods if datetime.datetime.fromisoformat(p["endTime"]) > now_dt]
         for p in periods[:limit]:
             start = str(p.get("startTime", ""))
             time_short = start[11:16] if len(start) >= 16 else start
