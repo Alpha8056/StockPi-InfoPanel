@@ -10,17 +10,19 @@
 - Auto-boot infopanel on reboot — setup.sh runs `systemctl enable infopanel.service`
 - ZIP code editable in Settings page (/panel/settings) — also set during install via setup.sh
 - Weather card section ordering — priority 1–5 or hidden, configurable in Weather Section Settings
+- Launcher-level feature flags** — show/hide Kitchen Inventory and/or Info Panel buttons based on config so you can run one app without the other appearing. Also added an option for the Weather Data to be on the launcher page
+
 
 ---
 
 ## 🔧 In Progress / Next Up
 
 ### Launcher Page
-- [ ] **Launcher-level feature flags** — show/hide Kitchen Inventory and/or Info Panel buttons based on config so you can run one app without the other appearing.
+
 
 ### Info Panel
 - [ ] **Card layout customization** — ability to reorder or hide the cards on the info panel home screen (weather, RF, network, alerts).
-- [ ] **Next-day forecast on home screen weather card** — surface a summary of tomorrow's forecast on the main panel card (detail page already has it).
+
 
 ---
 
