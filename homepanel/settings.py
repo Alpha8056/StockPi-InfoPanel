@@ -11,6 +11,7 @@ DEFAULT_SETTINGS = {
     "show_kitchen_button": True,
     "show_info_panel_button": True,
     "show_weather_on_launcher": False,
+    "card_order": {"rf": 1, "network": 2, "alerts": 3},
 }
 
 def load_settings():

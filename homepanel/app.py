@@ -300,38 +300,16 @@ HOME_HTML = """
   </div>
 
     <div class="row2">
-      {% if rf_enabled %}
-      <a class="tile" href="/rf">
+      {% for card in ordered_bottom_cards %}
+      <a class="tile" href="{{ card.href }}">
         <div class="card">
-          <div class="title">RF / Nearby Signals</div>
-          <div class="kv"><div class="k">Wi-Fi</div><div class="v">{{ rf_wifi_count }}</div></div>
-          <div class="kv"><div class="k">BLE</div><div class="v">{{ rf_ble_count }}</div></div>
-          <div class="kv"><div class="k">Last Scan</div><div class="v">{{ rf_last_scan }}</div></div>
+          <div class="title">{{ card.title }}</div>
+          {% for k, v in card.rows %}
+          <div class="kv"><div class="k">{{ k }}</div><div class="v">{{ v }}</div></div>
+          {% endfor %}
         </div>
       </a>
-      {% endif %}
-
-      {% if network_enabled %}
-      <a class="tile" href="/network">
-        <div class="card">
-          <div class="title">Network / Homelab</div>
-          <div class="kv"><div class="k">Devices</div><div class="v">{{ net_devices }}</div></div>
-          <div class="kv"><div class="k">Offline</div><div class="v">{{ net_offline }}</div></div>
-          <div class="kv"><div class="k">Status</div><div class="v">{{ net_status }}</div></div>
-        </div>
-      </a>
-      {% endif %}
-
-      {% if alerts_enabled %}
-      <a class="tile" href="/events">
-        <div class="card">
-          <div class="title">Alerts / Events</div>
-          <div class="kv"><div class="k">Alert Count</div><div class="v">{{ alerts_count }}</div></div>
-          <div class="kv"><div class="k">Severe Weather</div><div class="v">{{ alerts_severe }}</div></div>
-          <div class="kv"><div class="k">Updated</div><div class="v">{{ alerts_updated }}</div></div>
-        </div>
-      </a>
-      {% endif %}
+      {% endfor %}
     </div>
 
 
@@ -1115,8 +1093,9 @@ SETTINGS_HTML = """
       </div>
 
       <div class="card">
-        <h2 style="margin-bottom: 15px;">Toggle Cards</h2>
-        
+        <h2 style="margin-bottom: 15px;">Home Screen Cards</h2>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:15px;">Set order 1–3 to position a card. 0 = Hidden.</p>
+
         <div class="setting-row">
           <span>Weather Card</span>
           <label class="toggle">
@@ -1124,30 +1103,20 @@ SETTINGS_HTML = """
             <span class="slider"></span>
           </label>
         </div>
-        
+
+        {% set card_labels = [("rf", "RF / Nearby Signals"), ("network", "Network / Homelab"), ("alerts", "Alerts / Events")] %}
+        {% for key, label in card_labels %}
         <div class="setting-row">
-          <span>RF / Nearby Signals Card</span>
-          <label class="toggle">
-            <input type="checkbox" name="rf_enabled" {% if rf_enabled %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
+          <span>{{ label }}</span>
+          <select name="card_order_{{ key }}" style="background:#0f1115;border:1px solid #2a3142;border-radius:8px;padding:8px 12px;color:#e7e9ee;font-size:15px;">
+            {% for i in range(4) %}
+            <option value="{{ i }}" {% if card_order.get(key, loop.index) == i %}selected{% endif %}>
+              {{ "Hidden" if i == 0 else i }}
+            </option>
+            {% endfor %}
+          </select>
         </div>
-        
-        <div class="setting-row">
-          <span>Network / Homelab Card</span>
-          <label class="toggle">
-            <input type="checkbox" name="network_enabled" {% if network_enabled %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-        
-        <div class="setting-row">
-          <span>Alerts Card</span>
-          <label class="toggle">
-            <input type="checkbox" name="alerts_enabled" {% if alerts_enabled %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
+        {% endfor %}
       </div>
       
       <div class="card">
@@ -1477,6 +1446,25 @@ def home():
     # Load panel settings
     panel_settings = settings.load_settings()
     ctx.update(panel_settings)
+
+    # Build ordered bottom cards from card_order
+    card_order = panel_settings.get("card_order", {"rf": 1, "network": 2, "alerts": 3})
+    card_meta = {
+        "rf":      {"href": "/rf",      "title": "RF / Nearby Signals"},
+        "network": {"href": "/network", "title": "Network / Homelab"},
+        "alerts":  {"href": "/events",  "title": "Alerts / Events"},
+    }
+    card_rows = {
+        "rf":      [("Wi-Fi", ctx["rf_wifi_count"]), ("BLE", ctx["rf_ble_count"]), ("Last Scan", ctx["rf_last_scan"])],
+        "network": [("Devices", ctx["net_devices"]), ("Offline", ctx["net_offline"]), ("Status", ctx["net_status"])],
+        "alerts":  [("Alert Count", ctx["alerts_count"]), ("Severe Weather", ctx["alerts_severe"]), ("Updated", ctx["alerts_updated"])],
+    }
+    ctx["ordered_bottom_cards"] = [
+        {"key": k, "href": card_meta[k]["href"], "title": card_meta[k]["title"], "rows": card_rows[k]}
+        for k, v in sorted(card_order.items(), key=lambda x: (x[1] == 0, x[1]))
+        if v != 0 and k in card_meta
+    ]
+
     return render_template_string(HOME_HTML, **ctx)
 @app.get("/weather")
 def weather_page():
@@ -2080,9 +2068,17 @@ def settings_update():
     
     # Update settings from form checkboxes
     current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
-    current_settings["rf_enabled"] = request.form.get("rf_enabled") == "on"
-    current_settings["network_enabled"] = request.form.get("network_enabled") == "on"
-    current_settings["alerts_enabled"] = request.form.get("alerts_enabled") == "on"
+    card_order = {}
+    for key in ("rf", "network", "alerts"):
+        try:
+            card_order[key] = int(request.form.get(f"card_order_{key}", 1))
+        except (ValueError, TypeError):
+            card_order[key] = 1
+    current_settings["card_order"] = card_order
+    # Keep legacy flags in sync for any code still referencing them
+    current_settings["rf_enabled"] = card_order.get("rf", 1) != 0
+    current_settings["network_enabled"] = card_order.get("network", 1) != 0
+    current_settings["alerts_enabled"] = card_order.get("alerts", 1) != 0
     current_settings["show_kitchen_button"] = request.form.get("show_kitchen_button") == "on"
     current_settings["show_info_panel_button"] = request.form.get("show_info_panel_button") == "on"
     current_settings["show_weather_on_launcher"] = request.form.get("show_weather_on_launcher") == "on"
