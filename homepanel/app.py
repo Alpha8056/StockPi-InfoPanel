@@ -8,8 +8,8 @@ WEATHER_SETTINGS_HTML = """
   <title>Weather Settings</title>
   <style>
     :root{
-      --bg: #0f1115; --panel: #151922; --text: #e7e9ee; --muted: #a8b0c2;
-      --border: #2a3142; --btn: #1b2231; --btnHover: #232c3f;
+      --bg: {{ t.bg }}; --panel: {{ t.panel }}; --text: {{ t.text }}; --muted: {{ t.muted }};
+      --border: {{ t.border }}; --btn: {{ t.btn }}; --btnHover: {{ t.btnHover }};
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
@@ -19,7 +19,7 @@ WEATHER_SETTINGS_HTML = """
     .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .setting-row:last-child { border-bottom: none; }
     .setting-row span { font-size: 15px; }
-    select { background: #0f1115; border: 1px solid #2a3142; border-radius: 8px; padding: 8px 12px; color: #e7e9ee; font-size: 15px; }
+    select { background: var(--btn); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 15px; }
     .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; margin-right: 10px; }
     .btn:hover { background: var(--btnHover); }
     .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
@@ -170,19 +170,46 @@ def inject_script_root():
 
 
 
+THEMES = {
+    "dark": {
+        "bg": "#0b0f14", "panel": "#111826", "panel2": "#0f1622",
+        "text": "#e5e7eb", "muted": "#9ca3af", "border": "#1f2937",
+        "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
+        "warn": "#fbbf24", "btn": "#131c29", "btnHover": "#1a2535",
+        "shadow": "rgba(0,0,0,.45)",
+    },
+    "light": {
+        "bg": "#f0f2f5", "panel": "#ffffff", "panel2": "#f7f9fc",
+        "text": "#111827", "muted": "#6b7280", "border": "#d1d5db",
+        "accent": "#2563eb", "good": "#059669", "bad": "#dc2626",
+        "warn": "#d97706", "btn": "#e5e7eb", "btnHover": "#d1d5db",
+        "shadow": "rgba(0,0,0,.12)",
+    },
+    "dim": {
+        "bg": "#1e2433", "panel": "#252d3d", "panel2": "#202840",
+        "text": "#cdd5e0", "muted": "#7d8ea8", "border": "#334155",
+        "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
+        "warn": "#fbbf24", "btn": "#2a3347", "btnHover": "#303d54",
+        "shadow": "rgba(0,0,0,.35)",
+    },
+}
+
+def get_theme():
+    return THEMES.get(settings.get_setting("theme", "dark"), THEMES["dark"])
+
 BASE_CSS = """
 <style>
   :root{
-    --bg:#0b0f14;
-    --panel:#111826;
-    --panel2:#0f1622;
-    --text:#e5e7eb;
-    --muted:#9ca3af;
-    --border:#1f2937;
-    --accent:#60a5fa;
-    --good:#34d399;
-    --bad:#f87171;
-    --warn:#fbbf24;
+    --bg:{{ t.bg }};
+    --panel:{{ t.panel }};
+    --panel2:{{ t.panel2 }};
+    --text:{{ t.text }};
+    --muted:{{ t.muted }};
+    --border:{{ t.border }};
+    --accent:{{ t.accent }};
+    --good:{{ t.good }};
+    --bad:{{ t.bad }};
+    --warn:{{ t.warn }};
   }
   *{box-sizing:border-box}
   body{ margin:0; background:var(--bg); color:var(--text);
@@ -316,8 +343,15 @@ HOME_HTML = """
 <script>
 function tick(){
   const now = new Date();
+  {% if time_format == '12hr' %}
+  const h = now.getHours() % 12 || 12;
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+  document.getElementById('clock').textContent = h + ':' + m + ' ' + ampm;
+  {% else %}
   document.getElementById('clock').textContent =
-    String(now.getHours()).padStart(2,'0') + ":" + String(now.getMinutes()).padStart(2,'0');
+    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  {% endif %}
   document.getElementById('dateLine').textContent =
     now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 }
@@ -1056,8 +1090,8 @@ SETTINGS_HTML = """
   <title>Panel Settings</title>
   <style>
     :root{
-      --bg: #0f1115; --panel: #151922; --text: #e7e9ee; --muted: #a8b0c2;
-      --border: #2a3142; --btn: #1b2231; --btnHover: #232c3f;
+      --bg: {{ t.bg }}; --panel: {{ t.panel }}; --text: {{ t.text }}; --muted: {{ t.muted }};
+      --border: {{ t.border }}; --btn: {{ t.btn }}; --btnHover: {{ t.btnHover }};
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
@@ -1074,6 +1108,18 @@ SETTINGS_HTML = """
     input:checked + .slider:before { transform: translateX(24px); }
     .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; }
     .btn:hover { background: var(--btnHover); }
+    .theme-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .theme-card { position: relative; }
+    .theme-card input[type=radio] { position: absolute; opacity: 0; width: 0; height: 0; }
+    .theme-card label { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 18px; border: 2px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 700; transition: border-color .2s; min-width: 70px; }
+    .theme-card input[type=radio]:checked + label { border-color: #4CAF50; }
+    .theme-swatch { width: 32px; height: 20px; border-radius: 6px; border: 1px solid rgba(128,128,128,.3); }
+    .fmt-options { display: flex; gap: 10px; margin-top: 8px; }
+    .fmt-option { position: relative; }
+    .fmt-option input[type=radio] { position: absolute; opacity: 0; width: 0; height: 0; }
+    .fmt-option label { display: block; padding: 8px 16px; border: 2px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 700; transition: border-color .2s; }
+    .fmt-option input[type=radio]:checked + label { border-color: #4CAF50; }
+    input[type=text], select { background: var(--btn); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 15px; }
   </style>
 </head>
 <body>
@@ -1086,8 +1132,7 @@ SETTINGS_HTML = """
         <div class="setting-row">
           <span>ZIP Code</span>
           <input type="text" name="weather_zip" value="{{ weather_zip }}"
-            style="background:#0f1115;border:1px solid #2a3142;border-radius:8px;padding:8px 12px;
-                   color:#e7e9ee;font-size:15px;width:120px;text-align:center;"
+            style="width:120px;text-align:center;"
             maxlength="5" placeholder="67601" />
         </div>
       </div>
@@ -1108,7 +1153,7 @@ SETTINGS_HTML = """
         {% for key, label in card_labels %}
         <div class="setting-row">
           <span>{{ label }}</span>
-          <select name="card_order_{{ key }}" style="background:#0f1115;border:1px solid #2a3142;border-radius:8px;padding:8px 12px;color:#e7e9ee;font-size:15px;">
+          <select name="card_order_{{ key }}" style="min-width:90px;">
             {% for i in range(4) %}
             <option value="{{ i }}" {% if card_order.get(key, loop.index) == i %}selected{% endif %}>
               {{ "Hidden" if i == 0 else i }}
@@ -1144,6 +1189,47 @@ SETTINGS_HTML = """
             <input type="checkbox" name="show_weather_on_launcher" {% if show_weather_on_launcher %}checked{% endif %}>
             <span class="slider"></span>
           </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-bottom: 15px;">Time Format</h2>
+        <div class="fmt-options">
+          <div class="fmt-option">
+            <input type="radio" name="time_format" id="fmt12" value="12hr" {% if time_format == '12hr' %}checked{% endif %}>
+            <label for="fmt12">12-hour <span style="color:var(--muted);font-weight:400">(3:45 PM)</span></label>
+          </div>
+          <div class="fmt-option">
+            <input type="radio" name="time_format" id="fmt24" value="24hr" {% if time_format != '12hr' %}checked{% endif %}>
+            <label for="fmt24">24-hour <span style="color:var(--muted);font-weight:400">(15:45)</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-bottom: 15px;">Theme</h2>
+        <div class="theme-cards">
+          <div class="theme-card">
+            <input type="radio" name="theme" id="theme-dark" value="dark" {% if theme == 'dark' %}checked{% endif %}>
+            <label for="theme-dark">
+              <span class="theme-swatch" style="background:#111826;border-color:#1f2937"></span>
+              Dark
+            </label>
+          </div>
+          <div class="theme-card">
+            <input type="radio" name="theme" id="theme-light" value="light" {% if theme == 'light' %}checked{% endif %}>
+            <label for="theme-light">
+              <span class="theme-swatch" style="background:#ffffff;border-color:#d1d5db"></span>
+              Light
+            </label>
+          </div>
+          <div class="theme-card">
+            <input type="radio" name="theme" id="theme-dim" value="dim" {% if theme == 'dim' %}checked{% endif %}>
+            <label for="theme-dim">
+              <span class="theme-swatch" style="background:#252d3d;border-color:#334155"></span>
+              Dim
+            </label>
+          </div>
         </div>
       </div>
 
@@ -1465,7 +1551,7 @@ def home():
         if v != 0 and k in card_meta
     ]
 
-    return render_template_string(HOME_HTML, **ctx)
+    return render_template_string(HOME_HTML, t=get_theme(), time_format=settings.get_setting("time_format", "24hr"), **ctx)
 @app.get("/weather")
 def weather_page():
     ctx = _safe_get_weather_summary()
@@ -1499,6 +1585,8 @@ def weather_page():
     ordered_sections = [k for k, v in sorted(weather_sections.items(), key=lambda x: (x[1] == 0, x[1])) if v != 0]
     return render_template_string(
         WEATHER_HTML,
+        t=get_theme(),
+        time_format=settings.get_setting("time_format", "24hr"),
         storm_banner=storm_banner,
         radar_station=radar_station,
         ordered_sections=ordered_sections,
@@ -1530,7 +1618,7 @@ def network_page():
 
         cards.append({"name": name, "ip": ip, "type": dtype, "status": status, "last_seen": last_seen, "services": services})
 
-    return render_template_string(NETWORK_HTML, devices=cards)
+    return render_template_string(NETWORK_HTML, t=get_theme(), time_format=settings.get_setting("time_format", "24hr"), devices=cards)
 
 
 @app.get("/network/manage")
@@ -1612,6 +1700,8 @@ def rf_page():
         _rf_load_state()
     return render_template_string(
         RF_HTML,
+        t=get_theme(),
+        time_format=settings.get_setting("time_format", "24hr"),
         wifi=RF_CACHE["wifi"],
         wifi_count=len(RF_CACHE["wifi"]),
         wifi_note=RF_CACHE["wifi_note"],
@@ -1715,6 +1805,8 @@ def events_page():
 
     return render_template_string(
         EVENTS_HTML,
+        t=get_theme(),
+        time_format=settings.get_setting("time_format", "24hr"),
         active=active,
         recent=recent,
         active_count=str(len(active)),
@@ -1728,10 +1820,13 @@ def api_launcher():
     import json as _json
     panel_settings = settings.load_settings()
 
+    _theme_obj = THEMES.get(panel_settings.get("theme", "dark"), THEMES["dark"])
     data = {
         "show_kitchen_button": panel_settings.get("show_kitchen_button", True),
         "show_info_panel_button": panel_settings.get("show_info_panel_button", True),
         "show_weather_on_launcher": panel_settings.get("show_weather_on_launcher", False),
+        "time_format": panel_settings.get("time_format", "24hr"),
+        "theme": {f"--{k}": v for k, v in _theme_obj.items()},
     }
 
     if data["show_weather_on_launcher"]:
@@ -1996,7 +2091,7 @@ def weather_settings_page():
     weather_sections = current_settings.get("weather_sections", {
         "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
     })
-    return render_template_string(WEATHER_SETTINGS_HTML, weather_sections=weather_sections)
+    return render_template_string(WEATHER_SETTINGS_HTML, t=get_theme(), weather_sections=weather_sections)
 
 @app.post("/settings/weather/update")
 def weather_settings_update():
@@ -2023,7 +2118,7 @@ def settings_page():
     except Exception:
         git_version = "unknown"
     current_settings["git_version"] = git_version
-    return render_template_string(SETTINGS_HTML, **current_settings)
+    return render_template_string(SETTINGS_HTML, t=get_theme(), **current_settings)
 
 @app.post("/settings/update")
 def settings_update():
@@ -2082,6 +2177,12 @@ def settings_update():
     current_settings["show_kitchen_button"] = request.form.get("show_kitchen_button") == "on"
     current_settings["show_info_panel_button"] = request.form.get("show_info_panel_button") == "on"
     current_settings["show_weather_on_launcher"] = request.form.get("show_weather_on_launcher") == "on"
-    
+    time_format = request.form.get("time_format", "24hr")
+    if time_format in ("12hr", "24hr"):
+        current_settings["time_format"] = time_format
+    theme = request.form.get("theme", "dark")
+    if theme in ("dark", "light", "dim"):
+        current_settings["theme"] = theme
+
     settings.save_settings(current_settings)
     return redirect("/")  # Changed from settings_page to home

@@ -12,6 +12,8 @@ DEFAULT_SETTINGS = {
     "show_info_panel_button": True,
     "show_weather_on_launcher": False,
     "card_order": {"rf": 1, "network": 2, "alerts": 3},
+    "time_format": "24hr",
+    "theme": "dark",
 }
 
 def load_settings():
