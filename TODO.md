@@ -11,6 +11,7 @@
 - ZIP code editable in Settings page (/panel/settings) — also set during install via setup.sh
 - Weather card section ordering — priority 1–5 or hidden, configurable in Weather Section Settings
 - Launcher-level feature flags** — show/hide Kitchen Inventory and/or Info Panel buttons based on config so you can run one app without the other appearing. Also added an option for the Weather Data to be on the launcher page
+- Card layout customization** — ability to reorder or hide the cards on the info panel home screen (weather, RF, network, alerts).
 
 
 ---
@@ -21,14 +22,12 @@
 
 
 ### Info Panel
-- [ ] **Card layout customization** — ability to reorder or hide the cards on the info panel home screen (weather, RF, network, alerts).
+
 
 
 ---
 
 ## 💡 Future Ideas
-- Alerts/Events page: wire in active NWS alerts + storm proximity summary
-- Alerts/Events page: wire in network/device down alerts
 - BLE scan results on RF page (or remove RF/BLE/Network pages entirely — undecided)
 
 ---
