@@ -1551,7 +1551,7 @@ def home():
         if v != 0 and k in card_meta
     ]
 
-    return render_template_string(HOME_HTML, t=get_theme(), time_format=settings.get_setting("time_format", "24hr"), **ctx)
+    return render_template_string(HOME_HTML, t=get_theme(), **ctx)
 @app.get("/weather")
 def weather_page():
     ctx = _safe_get_weather_summary()
