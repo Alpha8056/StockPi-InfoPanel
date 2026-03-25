@@ -113,7 +113,7 @@ body{
   text-align:center;
   padding:18px;
   border-radius:18px;
-  background:#1b2231;
+  background:var(--btn);
   border:1px solid var(--border);
   font-weight:800;
   cursor:pointer;
@@ -169,7 +169,7 @@ body{
 
 <body>
 <div class="wrap">
-<a href="/panel/settings" style="position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:12px;background:#1b2231;border:1px solid #2a3142;color:#e7e9ee;text-decoration:none;font-weight:800;font-size:15px;z-index:999;display:flex;align-items:center;gap:8px;">⚙️ Settings</a>
+<a href="/panel/settings" style="position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:12px;background:var(--btn);border:1px solid var(--border);color:var(--text);text-decoration:none;font-weight:800;font-size:15px;z-index:999;display:flex;align-items:center;gap:8px;">⚙️ Settings</a>
 <div class="container">
 
   <div class="clockCard">
@@ -213,10 +213,20 @@ body{
 </div>
 
 <script>
+let timeFormat = '24hr';
+
 function tick(){
   const d=new Date();
-  document.getElementById('time').textContent=
-    d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  let timeStr;
+  if(timeFormat === '12hr'){
+    const h = d.getHours() % 12 || 12;
+    const m = String(d.getMinutes()).padStart(2,'0');
+    const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
+    timeStr = h + ':' + m + ' ' + ampm;
+  } else {
+    timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  document.getElementById('time').textContent = timeStr;
   document.getElementById('date').textContent=
     d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
 }
@@ -299,6 +309,12 @@ async function loadConfig(){
     const r = await fetch('/panel/api/launcher');
     if(!r.ok) return;
     const d = await r.json();
+    if(d.theme && typeof d.theme === 'object'){
+      const root = document.documentElement;
+      for(const [k, v] of Object.entries(d.theme))
+        root.style.setProperty(k, v);
+    }
+    if(d.time_format){ timeFormat = d.time_format; tick(); }
     if(!d.show_kitchen_button)
       document.getElementById('kitchenCard').style.display='none';
     if(!d.show_info_panel_button)
