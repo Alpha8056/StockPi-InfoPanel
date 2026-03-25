@@ -589,6 +589,57 @@ EVENTS_HTML = """
   <div style="height:16px"></div>
 
   <div class="card">
+    <div class="title">NWS Alerts</div>
+    {% if nws_alerts %}
+      {% for a in nws_alerts %}
+        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+            <div style="font-weight:900">{{ a.event }}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              {% if a.dist_miles %}<span class="pill">{{ a.dist_miles }} mi</span>{% endif %}
+              <span class="pill">{{ a.severity }}</span>
+            </div>
+          </div>
+          {% if a.headline %}
+            <div style="margin-top:6px">{{ a.headline }}</div>
+          {% endif %}
+          <div class="muted" style="margin-top:4px">{{ a.onset }} → {{ a.ends }}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="sub">No active NWS alerts for your location.</div>
+    {% endif %}
+  </div>
+
+  <div style="height:16px"></div>
+
+  <div class="card">
+    <div class="title">Network Devices</div>
+    {% if devices_status %}
+      <table>
+        <thead>
+          <tr><th>Name</th><th>IP</th><th>Status</th><th>Latency</th><th>Last Seen</th></tr>
+        </thead>
+        <tbody>
+          {% for d in devices_status %}
+          <tr {% if not d.is_up %}style="color:#f87171"{% endif %}>
+            <td><b>{{ d.name }}</b></td>
+            <td class="muted">{{ d.ip }}</td>
+            <td><span class="pill">{{ "UP" if d.is_up else "DOWN" }}</span></td>
+            <td class="muted">{{ "%.1f ms"|format(d.latency_ms) if d.latency_ms else "—" }}</td>
+            <td class="muted">{{ d.last_seen_local }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="sub">No devices configured or no data yet.</div>
+    {% endif %}
+  </div>
+
+  <div style="height:16px"></div>
+
+  <div class="card">
     <div class="title">Active</div>
     {% if active %}
       {% for a in active %}
@@ -1639,12 +1690,49 @@ def events_page():
     for r in recent:
         r["ts_local"] = local_ts(r.get("ts", 0))
 
+    # NWS alerts with proximity distances
+    nws_alerts = []
+    try:
+        data = weather_client.get_alerts()
+        for f in (data.get("features") or []):
+            props = (f.get("properties") or {})
+            geom = (f.get("geometry") or {})
+            event = props.get("event") or "Weather Alert"
+            severity = props.get("severity") or "Unknown"
+            headline = (props.get("headline") or "").strip()
+            onset = props.get("onset") or ""
+            ends = props.get("ends") or props.get("expires") or ""
+            dist = storm_proximity.distance_to_geometry_miles(
+                storm_proximity.HOME_LAT, storm_proximity.HOME_LON, geom
+            ) if geom else None
+            nws_alerts.append({
+                "event": event,
+                "severity": severity,
+                "headline": headline,
+                "onset": onset[:16].replace("T", " ") if onset else "—",
+                "ends": ends[:16].replace("T", " ") if ends else "—",
+                "dist_miles": f"{dist:.1f}" if dist is not None else None,
+            })
+    except Exception:
+        pass
+
+    # Live device status
+    devices_status = []
+    try:
+        devices_status = network_read.get_latest_status()
+        for d in devices_status:
+            d["last_seen_local"] = local_ts(d.get("last_seen_ts", 0))
+    except Exception:
+        pass
+
     return render_template_string(
         EVENTS_HTML,
         active=active,
         recent=recent,
         active_count=str(len(active)),
         updated=now,
+        nws_alerts=nws_alerts,
+        devices_status=devices_status,
     )
 
 @app.get("/api/launcher")
