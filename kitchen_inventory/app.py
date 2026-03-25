@@ -1,93 +1,15 @@
-
-WEATHER_SETTINGS_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Weather Settings</title>
-  <style>
-    :root{
-      --bg: {{ t.bg }}; --panel: {{ t.panel }}; --text: {{ t.text }}; --muted: {{ t.muted }};
-      --border: {{ t.border }}; --btn: {{ t.btn }}; --btnHover: {{ t.btnHover }};
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
-    .container { max-width: 600px; margin: 0 auto; }
-    h1 { margin-bottom: 20px; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 20px 0; }
-    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
-    .setting-row:last-child { border-bottom: none; }
-    .setting-row span { font-size: 15px; }
-    select { background: var(--btn); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 15px; }
-    .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; margin-right: 10px; }
-    .btn:hover { background: var(--btnHover); }
-    .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Weather Section Order</h1>
-    <p class="hint" style="margin-bottom:10px;">Set priority 1–5 to show a section. 0 = hidden. If two sections share a priority, they appear in default order.</p>
-
-    <form method="post" action="weather/update">
-      <div class="card">
-        {% set sections = [
-          ("current", "Current Conditions"),
-          ("hourly", "Hourly Forecast"),
-          ("alerts", "Active Alerts"),
-          ("forecast", "Multi-Day Forecast"),
-          ("radar", "Radar")
-        ] %}
-        {% for key, label in sections %}
-        <div class="setting-row">
-          <span>{{ label }}</span>
-          <select name="section_{{ key }}">
-            {% for i in range(6) %}
-            <option value="{{ i }}" {% if weather_sections.get(key, 0) == i %}selected{% endif %}>
-              {{ "Hidden" if i == 0 else i }}
-            </option>
-            {% endfor %}
-          </select>
-        </div>
-        {% endfor %}
-      </div>
-
-      <button type="submit" class="btn">Save</button>
-      <a href="../settings" class="btn">Back</a>
-    </form>
-  </div>
-</body>
-</html>
-"""
+# ============================================================
+# SECTION: Imports
+# ============================================================
 VERSION = "1.0.0"
 
 import os
-from flask import Flask, render_template_string, request, redirect, url_for
-
-import weather_client
-import network_read
-import service_read
-import devices_store
-import rf_scan
-import alerts_db
-import network_db
-network_db.init_db()
-alerts_db.init_db()
-import threading
 import time
-import subprocess
-import pathlib
-import settings
+import shutil
+import io
+import socket
 
-REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
-from flask import Response
-
-
-
-# --- Storm proximity scheduler (runs inside the web app) ---
-import threading
-import storm_proximity
+from flask import Flask, request, redirect, send_file, Response, url_for, render_template
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -103,63 +25,49 @@ class PrefixMiddleware:
 
 
 
-STORM_PROX_INTERVAL_SECONDS = 15 * 60  # 15 minutes
-STORM_PROX_ENABLED = True
+# Optional dependency (for QR codes)
+try:
+    import qrcode
+except Exception:
+    qrcode = None
 
-def storm_prox_loop():
-    while True:
-        if STORM_PROX_ENABLED:
-            try:
-                n = storm_proximity.sync_storm_proximity()
-                print(f"[StormProx] Sync OK. New proximity alerts: {n}")
-            except Exception as e:
-                print("[StormProx] Sync error:", e)
-        time.sleep(STORM_PROX_INTERVAL_SECONDS)
+import db as _db
+_db.init_db()
 
-_storm_thread = threading.Thread(target=storm_prox_loop, daemon=True)
-_storm_thread.start()
-# --- end storm proximity scheduler ---
+from inventory import (
+    # Barcode alias support
+    resolve_barcode,
+    add_barcode_alias,
 
+    # Inventory / Grocery
+    get_item_by_barcode,
+    add_item,
+    increment_existing,
+    remove_one,
+    delete_item,
+    delete_grocery_only,
+    move_location,
+    get_inventory,
+    get_grocery_list,
+    lookup_name_by_barcode,
+    update_item_name,
 
-AUTO_SCAN_INTERVAL = 300  # seconds (5 minutes for now)
-AUTO_SCAN_ENABLED = False
+    # Smart / Debug
+    set_low_threshold,
+    get_low_stock,
+    get_item_stats,
+    get_event_log,
 
-def rf_autoscan_loop():
-    while True:
-        if AUTO_SCAN_ENABLED:
-            try:
-                wifi, wifi_note = rf_scan.scan_wifi()
+    # Locations
+    get_locations,
+    add_location,
+    delete_location,
+)
 
-                wifi_rows = []
-                for n in wifi:
-                    wifi_rows.append({
-                        "ssid": n.get("ssid", "—"),
-                        "signal": n.get("signal", "—"),
-                        "security": n.get("security", "—"),
-                    })
-
-                RF_CACHE["wifi"] = wifi_rows
-                RF_CACHE["wifi_note"] = wifi_note
-                RF_CACHE["last_scan"] = time.strftime("%Y-%m-%d %H:%M:%S")
-
-                print(f"[RF] Auto-scan complete: {len(wifi_rows)} networks")
-
-                # persist
-                try:
-                    _rf_save_state()
-                except Exception:
-                    pass
-
-            except Exception as e:
-                print("[RF] Auto-scan error:", e)
-
-        time.sleep(AUTO_SCAN_INTERVAL)
-
-autoscan_thread = threading.Thread(target=rf_autoscan_loop, daemon=True)
-autoscan_thread.start()
-
+# ============================================================
+# SECTION: App Setup
+# ============================================================
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me-stockpi-infopanel")
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.wsgi_app = PrefixMiddleware(app.wsgi_app)
@@ -169,2020 +77,1573 @@ def inject_script_root():
     return {"script_root": request.script_root}
 
 
-
-THEMES = {
-    "dark": {
-        "bg": "#0b0f14", "panel": "#111826", "panel2": "#0f1622",
-        "text": "#e5e7eb", "muted": "#9ca3af", "border": "#1f2937",
-        "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
-        "warn": "#fbbf24", "btn": "#131c29", "btnHover": "#1a2535",
-        "shadow": "rgba(0,0,0,.45)", "input": "#0d1117",
-    },
-    "light": {
-        "bg": "#f0f2f5", "panel": "#ffffff", "panel2": "#f7f9fc",
-        "text": "#111827", "muted": "#6b7280", "border": "#d1d5db",
-        "accent": "#2563eb", "good": "#059669", "bad": "#dc2626",
-        "warn": "#d97706", "btn": "#e5e7eb", "btnHover": "#d1d5db",
-        "shadow": "rgba(0,0,0,.12)", "input": "#f9fafb",
-    },
-    "dim": {
-        "bg": "#1e2433", "panel": "#252d3d", "panel2": "#202840",
-        "text": "#cdd5e0", "muted": "#7d8ea8", "border": "#334155",
-        "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
-        "warn": "#fbbf24", "btn": "#2a3347", "btnHover": "#303d54",
-        "shadow": "rgba(0,0,0,.35)", "input": "#181f2d",
-    },
-}
-
-def get_theme():
-    return THEMES.get(settings.get_setting("theme", "dark"), THEMES["dark"])
-
-BASE_CSS = """
-<style>
-  :root{
-    --bg:{{ t.bg }};
-    --panel:{{ t.panel }};
-    --panel2:{{ t.panel2 }};
-    --text:{{ t.text }};
-    --muted:{{ t.muted }};
-    --border:{{ t.border }};
-    --accent:{{ t.accent }};
-    --good:{{ t.good }};
-    --bad:{{ t.bad }};
-    --warn:{{ t.warn }};
-  }
-  *{box-sizing:border-box}
-  body{ margin:0; background:var(--bg); color:var(--text);
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-  a{ color:inherit; }
-  .wrap{ padding:16px; max-width:1200px; margin:0 auto; }
-  .card{ background:linear-gradient(180deg, var(--panel), var(--panel2));
-         border:1px solid var(--border); border-radius:16px; padding:16px; }
-  .title{ font-size:18px; font-weight:800; margin:0 0 10px 0; letter-spacing:0.2px; }
-  .sub{ color:var(--muted); font-size:16px; margin-top:10px; }
-  .badge{ display:inline-block; padding:4px 10px; border-radius:999px;
-          font-size:13px; font-weight:800; border:1px solid var(--border); color:var(--muted); }
-  .grid{ display:grid; gap:16px; }
-  .grid2{ grid-template-columns: 2fr 1fr; }
-  .row2{ margin-top:16px; display:grid; gap:16px; grid-template-columns: repeat(3, 1fr); }
-  a.tile{ text-decoration:none; display:block; }
-  a.tile:hover .card{ border-color:#2b364a; }
-  .kv{ display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-top:1px solid rgba(31,41,55,.6); }
-  .kv:first-of-type{ border-top:none; padding-top:0; }
-  .k{ color:var(--muted); }
-  .v{ font-weight:800; }
-  .big{ font-size:56px; font-weight:900; line-height:1; margin:0; }
-  .weatherLine{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
-  .temp{ font-size:44px; font-weight:900; line-height:1; }
-  .cond{ color:var(--muted); font-size:18px; font-weight:800; }
-
-  .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
-  .btn{ display:inline-block; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
-        background:rgba(17,24,38,.35); text-decoration:none; font-weight:800; cursor:pointer; }
-  .btnRow{ display:flex; gap:10px; flex-wrap:wrap; }
-  .btnDanger{ border-color: rgba(248,113,113,.5); }
-  .btnPrimary{ border-color: rgba(96,165,250,.6); }
-
-  table{ width:100%; border-collapse:separate; border-spacing:0; overflow:hidden;
-         border:1px solid var(--border); border-radius:14px; }
-  th, td{ padding:10px 12px; border-bottom:1px solid rgba(31,41,55,.6); font-size:15px; }
-  th{ text-align:left; color:var(--muted); font-weight:900; background:rgba(17,24,38,.35); }
-  tr:last-child td{ border-bottom:none; }
-
-  .cards{ display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; }
-  .statusDot{ width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:8px; }
-  .up{ background: var(--good); }
-  .down{ background: var(--bad); }
-  .unk{ background: var(--warn); }
-  .pill{ display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border);
-         color:var(--muted); font-weight:800; font-size:13px; }
-  .hrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .hname{ font-weight:900; font-size:18px; }
-
-  .svcRow{ margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }
-  .svcPill{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
-            border:1px solid var(--border); font-weight:900; font-size:13px; color:var(--text);
-            background:rgba(17,24,38,.35); }
-  .svcDot{ width:8px; height:8px; border-radius:999px; display:inline-block; }
-
-  .formGrid{ display:grid; gap:12px; grid-template-columns: 1fr 1fr; }
-  .field{ display:flex; flex-direction:column; gap:6px; }
-  label{ font-weight:900; color:var(--muted); font-size:13px; }
-  input, textarea{ background: rgba(17,24,38,.35); border:1px solid var(--border);
-                   border-radius:12px; padding:10px 12px; color:var(--text); font-size:15px; outline:none; }
-  textarea{ min-height:120px; resize:vertical; }
-  .full{ grid-column: 1 / -1; }
-  .help{ color:var(--muted); font-size:13px; line-height:1.35; }
-
-  @media (max-width: 600px) {
-    .grid2{ grid-template-columns: 1fr; }
-    .row2{ grid-template-columns: 1fr; }
-    .cards{ grid-template-columns: 1fr; }
-    .formGrid{ grid-template-columns: 1fr; }
-    .topbar{ flex-wrap: wrap; }
-    .big{ font-size:40px; }
-    table{ display:block; overflow-x:auto; }
-  }
-</style>
-"""
-
-HOME_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HomePanel</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">HomePanel <span style="font-size:13px;font-weight:400;color:var(--muted)">v{{ version }}</span></div>
-    <div style="font-size:13px;color:var(--muted)">Data as of {{ page_loaded_at }}</div>
-  </div>
-  <div class="grid grid2">
-    {% if weather_enabled %}
-      <a class="tile" href="/weather">
-      <div class="card" style="min-height:140px">
-        <div class="title">Weather ({{ wx_location }})</div>
-        {% if wx_ok %}
-          <div class="weatherLine">
-            <div class="temp">{{ wx_temp }}</div>
-            <div class="cond">{{ wx_condition }}</div>
-          </div>
-          <div class="sub">
-            Feels like: <b>{{ wx_feels }}</b> • High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> • Precip: <b>{{ wx_precip }}</b>
-          </div>
-        {% else %}
-          <div class="sub">Weather unavailable right now.</div>
-          <div style="margin-top:14px"><span class="badge">No data</span></div>
-        {% endif %}
-      </div>
-    </a>
-    {% endif %}
-
-    <div class="card" style="min-height:140px">
-      <div class="title">Time</div>
-      <p class="big" id="clock">--:--</p>
-      <div class="sub" id="dateLine">Loading…</div>
-    </div>
-  </div>
-
-    <div class="row2">
-      {% for card in ordered_bottom_cards %}
-      <a class="tile" href="{{ card.href }}">
-        <div class="card">
-          <div class="title">{{ card.title }}</div>
-          {% for k, v in card.rows %}
-          <div class="kv"><div class="k">{{ k }}</div><div class="v">{{ v }}</div></div>
-          {% endfor %}
-        </div>
-      </a>
-      {% endfor %}
-    </div>
-
-
-<script>
-function tick(){
-  const now = new Date();
-  {% if time_format == '12hr' %}
-  const h = now.getHours() % 12 || 12;
-  const m = String(now.getMinutes()).padStart(2,'0');
-  const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
-  document.getElementById('clock').textContent = h + ':' + m + ' ' + ampm;
-  {% else %}
-  document.getElementById('clock').textContent =
-    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
-  {% endif %}
-  document.getElementById('dateLine').textContent =
-    now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-}
-tick(); setInterval(tick, 1000);
-</script>
-</body></html>
-"""
-
-WEATHER_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Weather</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Weather Details ({{ wx_location }})</div>
-    <a class="btn" href="/">Home</a>
-  </div>
-
-  {% for section in ordered_sections %}
-
-    {% if section == "current" %}
-    <div class="card">
-      {% if wx_ok %}
-        <div class="weatherLine">
-          <div class="temp">{{ wx_temp }}</div>
-          <div class="cond">{{ wx_condition }}</div>
-        </div>
-        <div class="sub">
-          Feels like: <b>{{ wx_feels }}</b> &bull; High/Low: <b>{{ wx_hi }}</b>/<b>{{ wx_lo }}</b> &bull; Precip: <b>{{ wx_precip }}</b>
-        </div>
-        <div class="sub">Updated: {{ wx_updated }}</div>
-      {% else %}
-        <div class="sub">Weather unavailable right now.</div>
-      {% endif %}
-    </div>
-
-    {% elif section == "hourly" %}
-    <div class="card">
-      <div class="title">Hourly Forecast (Next 12 Hours)</div>
-      {% if hourly_rows %}
-        <table>
-          <thead><tr><th>Time</th><th>Temp</th><th>Condition</th><th>Precip</th><th>Wind</th></tr></thead>
-          <tbody>
-          {% for r in hourly_rows %}
-            <tr><td>{{ r.time }}</td><td><b>{{ r.temp }}</b></td><td>{{ r.cond }}</td><td>{{ r.precip }}</td><td>{{ r.wind }}</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <div class="sub">No hourly data available.</div>
-      {% endif %}
-    </div>
-
-    {% elif section == "alerts" %}
-    <div class="card">
-      <div class="title">Severe Weather &amp; Alerts</div>
-      {% if alerts %}
-        {% for a in alerts %}
-          <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
-            <div style="font-weight:900">{{ a.headline }}</div>
-            <div class="muted" style="margin-top:6px">{{ a.when }}</div>
-            <div style="margin-top:8px">{{ a.desc }}</div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="sub">No active alerts.</div>
-      {% endif %}
-    </div>
-
-    {% elif section == "forecast" %}
-    <div class="card">
-      <div class="title">Tomorrow's Forecast</div>
-      {% if tomorrow_periods %}
-        {% for p in tomorrow_periods %}
-          <div style="padding:12px 0; border-top:1px solid rgba(31,41,55,.6)">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-              <div style="font-weight:900; font-size:16px;">{{ p.name }}</div>
-              <div style="font-size:22px; font-weight:900;">{{ p.temp }}</div>
-            </div>
-            <div class="sub" style="margin-top:4px;">{{ p.cond }}</div>
-            <div class="sub">Precip: <b>{{ p.precip }}</b> &bull; Wind: <b>{{ p.wind }}</b></div>
-            <div style="margin-top:6px; color:var(--muted); font-size:13px;">{{ p.detail }}</div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="sub">No forecast data available.</div>
-      {% endif %}
-    </div>
-
-    {% elif section == "radar" %}
-    <div class="card">
-      <div class="title">Radar</div>
-      <div class="sub">Animated loop - refreshes every 2 minutes</div>
-      <div style="border-radius:14px; overflow:hidden; border:1px solid rgba(31,41,55,.6); margin-top:10px;">
-        <img id="radarImg" src="https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif"
-             alt="Radar loop" style="width:100%; display:block;" />
-      </div>
-      <div class="muted" style="margin-top:10px" id="radarUpdated">Radar updated: -</div>
-    </div>
-
-    {% endif %}
-    <div style="height:16px"></div>
-
-  {% endfor %}
-
-  {% if storm_banner %}
-  <div class="card" style="border:1px solid rgba(245,158,11,.35);">
-    <div class="title">Storm Proximity</div>
-    <div style="margin-top:6px; font-weight:900">{{ storm_banner }}</div>
-    <div class="muted" style="margin-top:6px;">Active NWS warning polygon within your threshold.</div>
-  </div>
-  <div style="height:16px"></div>
-  {% endif %}
-
-</div>
-<script>
-(function () {
-  const img = document.getElementById("radarImg");
-  const updated = document.getElementById("radarUpdated");
-  if (!img) return;
-  function refreshRadar() {
-    img.src = "https://radar.weather.gov/ridge/standard/{{ radar_station }}_loop.gif?t=" + Date.now();
-    updated.textContent = "Radar refreshed: " + new Date().toLocaleString();
-  }
-  setInterval(refreshRadar, 120000);
-})();
-</script>
-</body></html>
-"""
-
-NETWORK_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Network</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Network / Homelab</div>
-    <div class="btnRow">
-      <a class="btn btnPrimary" href="/network/manage">Manage Devices</a>
-      <a class="btn" href="/">Home</a>
-    </div>
-  </div>
-
-  <div class="cards">
-    {% for d in devices %}
-      <div class="card">
-        <div class="hrow">
-          <div class="hname">
-            {% if d.status == "UP" %}
-              <span class="statusDot up"></span>
-            {% elif d.status == "DOWN" %}
-              <span class="statusDot down"></span>
-            {% else %}
-              <span class="statusDot unk"></span>
-            {% endif %}
-            {{ d.name }}
-          </div>
-          <span class="pill">{{ d.type or "device" }}</span>
-        </div>
-
-        <div class="sub">{{ d.ip }}</div>
-
-        <div style="margin-top:10px">
-          <div class="kv"><div class="k">Status</div><div class="v">{{ d.status }}</div></div>
-          <div class="kv"><div class="k">Last Seen</div><div class="v">{{ d.last_seen }}</div></div>
-
-          <div class="k" style="margin-top:10px">Services</div>
-          <div class="svcRow">
-            {% if d.services %}
-              {% for s in d.services %}
-                <span class="svcPill">
-                  {% if s.is_up %}
-                    <span class="svcDot up"></span>
-                  {% else %}
-                    <span class="svcDot down"></span>
-                  {% endif %}
-                  {{ s.name }}
-                </span>
-              {% endfor %}
-            {% else %}
-              <span class="badge">None</span>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    {% endfor %}
-  </div>
-</div>
-</body></html>
-"""
-
-
-
-EVENTS_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Alerts</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Alerts / Events</div>
-    <div class="btnRow">
-      <a class="btn" href="/">Home</a>
-    </div>
-  </div>
-
-  <div class="row2" style="grid-template-columns: repeat(3, 1fr); margin-top:0;">
-    <div class="card">
-      <div class="title">Active Alerts</div>
-      <div class="kv"><div class="k">Count</div><div class="v">{{ active_count }}</div></div>
-      <div class="kv"><div class="k">Last updated</div><div class="v">{{ updated }}</div></div>
-    </div>
-
-    <div class="card">
-      <div class="title">Severe Weather</div>
-      {% set wx_alerts = active | selectattr("source", "equalto", "weather") | list %}
-      {% if wx_alerts %}
-        {% for a in wx_alerts %}
-          <div class="kv"><div class="k">{{ a.title }}</div><div class="v pill">{{ a.level }}</div></div>
-        {% endfor %}
-      {% else %}
-        <div class="sub">No active weather alerts.</div>
-      {% endif %}
-    </div>
-
-    <div class="card">
-      <div class="title">Network</div>
-      {% set net_alerts = active | selectattr("source", "equalto", "network") | list %}
-      {% if net_alerts %}
-        {% for a in net_alerts %}
-          <div class="kv"><div class="k">{{ a.title }}</div><div class="v pill">{{ a.level }}</div></div>
-        {% endfor %}
-      {% else %}
-        <div class="sub">No active network alerts.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">NWS Alerts</div>
-    {% if nws_alerts %}
-      {% for a in nws_alerts %}
-        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
-          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
-            <div style="font-weight:900">{{ a.event }}</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-              {% if a.dist_miles %}<span class="pill">{{ a.dist_miles }} mi</span>{% endif %}
-              <span class="pill">{{ a.severity }}</span>
-            </div>
-          </div>
-          {% if a.headline %}
-            <div style="margin-top:6px">{{ a.headline }}</div>
-          {% endif %}
-          <div class="muted" style="margin-top:4px">{{ a.onset }} → {{ a.ends }}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="sub">No active NWS alerts for your location.</div>
-    {% endif %}
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Network Devices</div>
-    {% if devices_status %}
-      <table>
-        <thead>
-          <tr><th>Name</th><th>IP</th><th>Status</th><th>Latency</th><th>Last Seen</th></tr>
-        </thead>
-        <tbody>
-          {% for d in devices_status %}
-          <tr {% if not d.is_up %}style="color:#f87171"{% endif %}>
-            <td><b>{{ d.name }}</b></td>
-            <td class="muted">{{ d.ip }}</td>
-            <td><span class="pill">{{ "UP" if d.is_up else "DOWN" }}</span></td>
-            <td class="muted">{{ "%.1f ms"|format(d.latency_ms) if d.latency_ms else "—" }}</td>
-            <td class="muted">{{ d.last_seen_local }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">No devices configured or no data yet.</div>
-    {% endif %}
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Active</div>
-    {% if active %}
-      {% for a in active %}
-        <div style="padding:12px 0;border-top:1px solid rgba(31,41,55,.6)">
-          <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
-            <div style="font-weight:900">{{ a.title }}</div>
-            <div class="pill">{{ a.level }}</div>
-          </div>
-          <div class="muted" style="margin-top:6px">
-            {{ a.source }} • {{ a.ts_local }}
-          </div>
-          <div style="margin-top:8px">{{ a.message }}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="sub">No active alerts.</div>
-    {% endif %}
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Recent</div>
-    {% if recent %}
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th><th>Level</th><th>Source</th><th>Title</th><th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in recent %}
-          <tr>
-            <td>{{ r.ts_local }}</td>
-            <td><span class="pill">{{ r.level }}</span></td>
-            <td class="muted">{{ r.source }}</td>
-            <td><b>{{ r.title }}</b></td>
-            <td class="muted">{{ "ACTIVE" if r.is_active else "CLEARED" }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">No history yet.</div>
-    {% endif %}
-  </div>
-
-</div>
-</body></html>
-"""
-
-RF_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>RF</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">RF / Nearby Signals</div>
-    <div class="btnRow">
-      <a class="btn btnPrimary" href="/rf/scan">Scan now</a>
-      <a class="btn" href="/">Home</a>
-    </div>
-  </div>
-
-  <div class="row2" style="grid-template-columns: repeat(3, 1fr); margin-top:0;">
-    <div class="card">
-      <div class="title">Wi-Fi</div>
-      <div class="kv"><div class="k">Networks found</div><div class="v">{{ wifi_count }}</div></div>
-      <div class="kv"><div class="k">Scan method</div><div class="v">{{ wifi_note }}</div></div>
-    </div>
-
-    <div class="card">
-      <div class="title">Bluetooth (BLE)</div>
-      <div class="kv"><div class="k">Devices found</div><div class="v">{{ ble_count }}</div></div>
-      <div class="kv"><div class="k">Status</div><div class="v">{{ ble_note }}</div></div>
-    </div>
-
-    <div class="card">
-      <div class="title">Scan</div>
-      <div class="kv"><div class="k">Last scan</div><div class="v">{{ last_scan }}</div></div>
-      <div class="kv"><div class="k">Refresh</div><div class="v">Tap “Scan now”</div></div>
-    </div>
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">Wi-Fi Results</div>
-    {% if wifi %}
-      <table>
-        <thead>
-          <tr>
-            <th>SSID</th>
-            <th>Signal</th>
-            <th>Security</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for n in wifi %}
-          <tr>
-            <td><b>{{ n.ssid }}</b></td>
-            <td>{{ n.signal }}</td>
-            <td class="muted">{{ n.security }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">No Wi-Fi results yet. Tap <b>Scan now</b>.</div>
-    {% endif %}
-  </div>
-
-  <div style="height:16px"></div>
-
-  <div class="card">
-    <div class="title">BLE Results</div>
-    <div class="sub">Coming next: real BLE scan results displayed here.</div>
-  </div>
-</div>
-</body></html>
-"""
-
-MANAGE_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Manage Devices</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Manage Devices</div>
-    <div class="btnRow">
-      <a class="btn btnPrimary" href="/network/device/new">Add Device</a>
-      <a class="btn" href="/network">Back</a>
-    </div>
-  </div>
-
-  <div class="card">
-    {% if devices %}
-      <table>
-        <thead><tr>
-          <th>#</th><th>Name</th><th>IP</th><th>Type</th><th>Services</th><th>Actions</th>
-        </tr></thead>
-        <tbody>
-          {% for d in devices %}
-          <tr>
-            <td>{{ loop.index0 }}</td>
-            <td><b>{{ d.name }}</b></td>
-            <td>{{ d.ip }}</td>
-            <td>{{ d.type }}</td>
-            <td>{{ d.svc_count }}</td>
-            <td>
-              <a class="btn" href="/network/device/{{ loop.index0 }}/edit">Edit</a>
-              <a class="btn btnDanger" href="/network/device/{{ loop.index0 }}/delete">Delete</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">No devices configured.</div>
-    {% endif %}
-  </div>
-</div>
-</body></html>
-"""
-
-DEVICE_FORM_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>{{ title }}</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">{{ title }}</div>
-    <a class="btn" href="/network/manage">Back</a>
-  </div>
-
-  {% if error %}
-    <div class="card" style="border-color: rgba(248,113,113,.55); margin-bottom: 12px;">
-      <div class="title" style="margin-bottom:6px;">Fix this first</div>
-      <div class="sub">{{ error }}</div>
-    </div>
-  {% endif %}
-
-  <form class="card" method="post" onsubmit="return buildServicesJson();">
-    <div class="formGrid">
-      <div class="field">
-        <label>Device Name</label>
-        <input name="name" value="{{ dev.name }}" required />
-      </div>
-
-      <div class="field">
-        <label>IP Address</label>
-        <input name="ip" value="{{ dev.ip }}" required />
-      </div>
-
-      <div class="field">
-        <label>Device Type</label>
-        <input name="type" value="{{ dev.type }}" placeholder="server / pi / router / etc." />
-      </div>
-
-      <div class="field full">
-        <label>Services</label>
-
-        <div class="help" style="margin-bottom:10px">
-          Add checks like SSH (TCP 22) or Jellyfin (HTTP 8096 /).
-        </div>
-
-        <div id="servicesBox" style="display:grid; gap:10px;"></div>
-
-        <div style="margin-top:10px" class="btnRow">
-          <button class="btn btnPrimary" type="button" onclick="addServiceRow()">+ Add Service</button>
-        </div>
-
-        <!-- Hidden field that we submit to Flask -->
-        <input type="hidden" name="services_json" id="services_json" value="[]">
-      </div>
-    </div>
-
-    <div style="height:12px"></div>
-    <div class="btnRow">
-      <button class="btn btnPrimary" type="submit">Save</button>
-      <a class="btn" href="/network/manage">Cancel</a>
-    </div>
-  </form>
-</div>
-
-<script>
-  // Provided by Flask
-  const initialServices = {{ services_list_json|safe }};
-
-  function serviceRowTemplate(svc){
-    const name = (svc && svc.name) ? svc.name : "";
-    const type = (svc && svc.type) ? svc.type : "tcp";
-    const port = (svc && svc.port !== undefined && svc.port !== null) ? String(svc.port) : "";
-    const path = (svc && svc.path) ? svc.path : "/";
-
-    const id = "svc_" + Math.random().toString(16).slice(2);
-
-    return `
-      <div class="card" style="padding:12px;border-radius:14px;">
-        <div class="formGrid" style="grid-template-columns: 1.2fr .9fr .6fr;">
-          <div class="field">
-            <label>Service Name</label>
-            <input data-k="name" value="${escapeHtml(name)}" placeholder="SSH / Jellyfin / HA" required>
-          </div>
-
-          <div class="field">
-            <label>Type</label>
-            <select data-k="type" onchange="togglePath(this)">
-              <option value="tcp" ${type==="tcp" ? "selected":""}>TCP</option>
-              <option value="http" ${type==="http" ? "selected":""}>HTTP</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label>Port</label>
-            <input data-k="port" value="${escapeHtml(port)}" inputmode="numeric" placeholder="22 / 8096" required>
-          </div>
-
-          <div class="field full pathWrap" style="${type==="http" ? "" : "display:none;"}">
-            <label>HTTP Path</label>
-            <input data-k="path" value="${escapeHtml(path)}" placeholder="/" />
-            <div class="help">Only used for HTTP. Leave as / for most dashboards.</div>
-          </div>
-
-          <div class="field full">
-            <button class="btn btnDanger" type="button" onclick="removeServiceRow(this)">Remove</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function escapeHtml(s){
-    return String(s ?? "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  function addServiceRow(svc){
-    const box = document.getElementById("servicesBox");
-    const html = serviceRowTemplate(svc || {});
-    const wrapper = document.createElement("div");
-    wrapper.innerHTML = html;
-    box.appendChild(wrapper);
-  }
-
-  function removeServiceRow(btn){
-    const card = btn.closest("div.card");
-    if(card) card.parentElement.remove(); // wrapper div
-  }
-
-  function togglePath(sel){
-    const card = sel.closest("div.card");
-    const wrap = card.querySelector(".pathWrap");
-    if(!wrap) return;
-    wrap.style.display = (sel.value === "http") ? "" : "none";
-  }
-
-  function buildServicesJson(){
-    const box = document.getElementById("servicesBox");
-    const cards = box.querySelectorAll("div.card");
-    const out = [];
-
-    for(const card of cards){
-      const name = card.querySelector('[data-k="name"]').value.trim();
-      const type = card.querySelector('[data-k="type"]').value.trim();
-      const portRaw = card.querySelector('[data-k="port"]').value.trim();
-
-      if(!name){ alert("Service name is required."); return false; }
-      if(!portRaw){ alert("Service port is required."); return false; }
-      const port = Number(portRaw);
-      if(!Number.isFinite(port) || port <= 0 || port > 65535){
-        alert("Service port must be a number between 1 and 65535.");
-        return false;
-      }
-
-      const svc = { name, type, port };
-      if(type === "http"){
-        let path = (card.querySelector('[data-k="path"]').value || "/").trim();
-        if(!path.startsWith("/")) path = "/" + path;
-        svc.path = path;
-      }
-      out.push(svc);
-    }
-
-    document.getElementById("services_json").value = JSON.stringify(out);
-    return true;
-  }
-
-  // Init
-  if(Array.isArray(initialServices) && initialServices.length){
-    for(const s of initialServices) addServiceRow(s);
-  } else {
-    // Start with one blank row to guide the user
-    addServiceRow({type:"tcp"});
-  }
-</script>
-</body></html>
-""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">{{ title }}</div>
-    <a class="btn" href="/network/manage">Back</a>
-  </div>
-
-  {% if error %}
-    <div class="card" style="border-color: rgba(248,113,113,.55); margin-bottom: 12px;">
-      <div class="title" style="margin-bottom:6px;">Fix this first</div>
-      <div class="sub">{{ error }}</div>
-    </div>
-  {% endif %}
-
-  <form class="card" method="post">
-    <div class="formGrid">
-      <div class="field">
-        <label>Device Name</label>
-        <input name="name" value="{{ dev.name }}" required />
-      </div>
-
-      <div class="field">
-        <label>IP Address</label>
-        <input name="ip" value="{{ dev.ip }}" required />
-      </div>
-
-      <div class="field">
-        <label>Device Type</label>
-        <input name="type" value="{{ dev.type }}" placeholder="server / pi / router / etc." />
-      </div>
-
-      <div class="field full">
-        <label>Services (JSON list)</label>
-        <textarea name="services_json" spellcheck="false">{{ services_json }}</textarea>
-        <div class="help">We’ll replace this with a normal “Add Service” form next.</div>
-      </div>
-    </div>
-
-    <div style="height:12px"></div>
-    <div class="btnRow">
-      <button class="btn btnPrimary" type="submit">Save</button>
-      <a class="btn" href="/network/manage">Cancel</a>
-    </div>
-  </form>
-</div>
-</body></html>
-"""
-
-DELETE_HTML = """
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Delete Device</title>""" + BASE_CSS + """
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="title" style="margin:0">Delete Device</div>
-    <a class="btn" href="/network/manage">Back</a>
-  </div>
-
-  <div class="card">
-    <div class="title" style="margin-bottom:6px">Are you sure?</div>
-    <div class="sub">This will remove <b>{{ dev.name }}</b> ({{ dev.ip }}) from <code>devices.json</code>.</div>
-    <div style="height:12px"></div>
-
-    <form method="post">
-      <div class="btnRow">
-        <button class="btn btnDanger" type="submit">Delete</button>
-        <a class="btn" href="/network/manage">Cancel</a>
-      </div>
-    </form>
-  </div>
-</div>
-</body></html>
-"""
-
-SETTINGS_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panel Settings</title>
-  <style>
-    :root{
-      --bg: {{ t.bg }}; --panel: {{ t.panel }}; --text: {{ t.text }}; --muted: {{ t.muted }};
-      --border: {{ t.border }}; --btn: {{ t.btn }}; --btnHover: {{ t.btnHover }};
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 20px; }
-    .container { max-width: 600px; margin: 0 auto; }
-    h1 { margin-bottom: 20px; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 20px 0; }
-    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
-    .setting-row:last-child { border-bottom: none; }
-    .toggle { position: relative; width: 50px; height: 26px; }
-    .toggle input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #555; border-radius: 26px; transition: .3s; }
-    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background: white; border-radius: 50%; transition: .3s; }
-    input:checked + .slider { background: #4CAF50; }
-    input:checked + .slider:before { transform: translateX(24px); }
-    .btn { padding: 12px 24px; background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; }
-    .btn:hover { background: var(--btnHover); }
-    .theme-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
-    .theme-card { position: relative; }
-    .theme-card input[type=radio] { position: absolute; opacity: 0; width: 0; height: 0; }
-    .theme-card label { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 18px; border: 2px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 700; transition: border-color .2s; min-width: 70px; }
-    .theme-card input[type=radio]:checked + label { border-color: #4CAF50; }
-    .theme-swatch { width: 32px; height: 20px; border-radius: 6px; border: 1px solid rgba(128,128,128,.3); }
-    .fmt-options { display: flex; gap: 10px; margin-top: 8px; }
-    .fmt-option { position: relative; }
-    .fmt-option input[type=radio] { position: absolute; opacity: 0; width: 0; height: 0; }
-    .fmt-option label { display: block; padding: 8px 16px; border: 2px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 700; transition: border-color .2s; }
-    .fmt-option input[type=radio]:checked + label { border-color: #4CAF50; }
-    input[type=text], select { background: var(--btn); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 15px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Panel Settings</h1>
-    
-    <form method="post" action="settings/update">
-      <div class="card">
-        <h2 style="margin-bottom: 15px;">Weather Location</h2>
-        <div class="setting-row">
-          <span>ZIP Code</span>
-          <input type="text" name="weather_zip" value="{{ weather_zip }}"
-            style="width:120px;text-align:center;"
-            maxlength="5" placeholder="67601" />
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 style="margin-bottom: 15px;">Home Screen Cards</h2>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:15px;">Set order 1–3 to position a card. 0 = Hidden.</p>
-
-        <div class="setting-row">
-          <span>Weather Card</span>
-          <label class="toggle">
-            <input type="checkbox" name="weather_enabled" {% if weather_enabled %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        {% set card_labels = [("rf", "RF / Nearby Signals"), ("network", "Network / Homelab"), ("alerts", "Alerts / Events")] %}
-        {% for key, label in card_labels %}
-        <div class="setting-row">
-          <span>{{ label }}</span>
-          <select name="card_order_{{ key }}" style="min-width:90px;">
-            {% for i in range(4) %}
-            <option value="{{ i }}" {% if card_order.get(key, loop.index) == i %}selected{% endif %}>
-              {{ "Hidden" if i == 0 else i }}
-            </option>
-            {% endfor %}
-          </select>
-        </div>
-        {% endfor %}
-      </div>
-      
-      <div class="card">
-        <h2 style="margin-bottom: 15px;">Launcher Buttons</h2>
-
-        <div class="setting-row">
-          <span>Show Kitchen Inventory Button</span>
-          <label class="toggle">
-            <input type="checkbox" name="show_kitchen_button" {% if show_kitchen_button %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="setting-row">
-          <span>Show Info Panel Button</span>
-          <label class="toggle">
-            <input type="checkbox" name="show_info_panel_button" {% if show_info_panel_button %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="setting-row">
-          <span>Show Weather on Launcher</span>
-          <label class="toggle">
-            <input type="checkbox" name="show_weather_on_launcher" {% if show_weather_on_launcher %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 style="margin-bottom: 15px;">Time Format</h2>
-        <div class="fmt-options">
-          <div class="fmt-option">
-            <input type="radio" name="time_format" id="fmt12" value="12hr" {% if time_format == '12hr' %}checked{% endif %}>
-            <label for="fmt12">12-hour <span style="color:var(--muted);font-weight:400">(3:45 PM)</span></label>
-          </div>
-          <div class="fmt-option">
-            <input type="radio" name="time_format" id="fmt24" value="24hr" {% if time_format != '12hr' %}checked{% endif %}>
-            <label for="fmt24">24-hour <span style="color:var(--muted);font-weight:400">(15:45)</span></label>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 style="margin-bottom: 15px;">Theme</h2>
-        <div class="theme-cards">
-          <div class="theme-card">
-            <input type="radio" name="theme" id="theme-dark" value="dark" {% if theme == 'dark' %}checked{% endif %}>
-            <label for="theme-dark">
-              <span class="theme-swatch" style="background:#111826;border-color:#1f2937"></span>
-              Dark
-            </label>
-          </div>
-          <div class="theme-card">
-            <input type="radio" name="theme" id="theme-light" value="light" {% if theme == 'light' %}checked{% endif %}>
-            <label for="theme-light">
-              <span class="theme-swatch" style="background:#ffffff;border-color:#d1d5db"></span>
-              Light
-            </label>
-          </div>
-          <div class="theme-card">
-            <input type="radio" name="theme" id="theme-dim" value="dim" {% if theme == 'dim' %}checked{% endif %}>
-            <label for="theme-dim">
-              <span class="theme-swatch" style="background:#252d3d;border-color:#334155"></span>
-              Dim
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <button type="submit" class="btn">Save Settings</button>
-    </form>
-    <a href="settings/weather" class="btn" style="margin-top:10px; display:inline-block;">Weather Section Settings</a>
-
-    <div class="card" style="margin-top:20px;">
-      <div class="setting-row">
-        <span>Version</span>
-        <span style="color: var(--muted); font-family: monospace;">{{ git_version }}</span>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-
-def _parse_services_json(text: str):
-    text = (text or "").strip()
-    if not text:
-        return []
-    import json
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Services JSON is invalid: {e.msg} (line {e.lineno}, column {e.colno})")
-    if not isinstance(obj, list):
-        raise ValueError("Services must be a JSON list (example: [])")
-    return obj
-
-
-def _fmt_ts(ts: int | None) -> str:
-    if not ts:
-        return "—"
-    import datetime
-    return datetime.datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _safe_get_weather_summary():
-    try:
-        hourly = weather_client.get_forecast_hourly()
-        props = hourly.get("properties", {})
-        periods = props.get("periods", []) or []
-        if not periods:
-            raise ValueError("No hourly periods returned")
-
-        import datetime
-        now_dt = datetime.datetime.now().astimezone()
-        now = next(
-            (p for p in periods if datetime.datetime.fromisoformat(p["startTime"]) <= now_dt
-             <= datetime.datetime.fromisoformat(p["endTime"])),
-            periods[0]
-        )
-        temp_f = now.get("temperature")
-        temp_u = now.get("temperatureUnit", "F")
-        condition = now.get("shortForecast", "Unknown")
-        feels_like = now.get("temperature")
-
-        precip = now.get("probabilityOfPrecipitation", {}) or {}
-        precip_val = precip.get("value")
-        precip_txt = f"{precip_val}%" if precip_val is not None else "—"
-
-        temps = [float(p.get("temperature")) for p in periods[:24] if isinstance(p.get("temperature"), (int, float))]
-        hi = f"{int(max(temps))}°{temp_u}" if temps else "—"
-        lo = f"{int(min(temps))}°{temp_u}" if temps else "—"
-
-        try:
-            import datetime
-            fetched_at = weather_client.get_hourly_fetched_at()
-            if fetched_at:
-                updated = datetime.datetime.fromtimestamp(fetched_at).strftime("%-I:%M %p")
-            else:
-                updated = "—"
-        except Exception:
-            updated = "—"
-        location = weather_client.get_weather_zip()
-
-        return {
-            "wx_ok": True,
-            "wx_location": location,
-            "wx_temp": f"{temp_f}°{temp_u}" if temp_f is not None else f"—°{temp_u}",
-            "wx_condition": condition,
-            "wx_feels": f"{feels_like}°{temp_u}" if feels_like is not None else "—",
-            "wx_hi": hi,
-            "wx_lo": lo,
-            "wx_precip": precip_txt,
-            "wx_updated": updated,
-        }
-    except Exception:
-        return {
-            "wx_ok": False,
-            "wx_location": weather_client.get_weather_zip(),
-            "wx_temp": "—",
-            "wx_condition": "—",
-            "wx_feels": "—",
-            "wx_hi": "—",
-            "wx_lo": "—",
-            "wx_precip": "—",
-            "wx_updated": "—",
-        }
-
-
-def _network_summary():
-    try:
-        # based on configured devices (so it matches what you manage)
-        cfg = devices_store.load_devices()
-        status_rows = {d["ip"]: d for d in network_read.get_latest_status()}
-
-        total = len(cfg)
-        offline_names = []
-        any_unknown = False
-
-        for d in cfg:
-            ip = d.get("ip", "")
-            st = status_rows.get(ip)
-            if not st:
-                any_unknown = True
-                continue
-            if int(st.get("is_up", 0)) == 0:
-                offline_names.append(d.get("name", ip))
-
-        offline_txt = ", ".join(offline_names) if offline_names else "None"
-        if offline_names:
-            overall = "ISSUES"
-        elif any_unknown:
-            overall = "UNKNOWN"
-        else:
-            overall = "UP"
-
-        return {"net_devices": str(total), "net_offline": offline_txt, "net_status": overall}
-    except Exception:
-        return {"net_devices": "—", "net_offline": "—", "net_status": "—"}
-
-
-def _alerts_summary():
-    try:
-        alerts_db.init_db()
-        active = alerts_db.list_alerts(active_only=True, limit=200)
-        count = len(active)
-        has_severe = any(a.get("level") == "crit" or a.get("source") == "weather" for a in active)
-        last_ts = max((a.get("ts", 0) for a in active), default=0)
-        last_updated = time.strftime("%H:%M:%S", time.localtime(last_ts)) if last_ts else "—"
-        return {
-            "alerts_count": str(count) if count else "0",
-            "alerts_severe": "YES" if has_severe else "No",
-            "alerts_updated": last_updated,
-        }
-    except Exception:
-        return {"alerts_count": "—", "alerts_severe": "—", "alerts_updated": "—"}
-
-
-def _safe_hourly_rows(limit: int = 12):
-    rows = []
-    try:
-        import datetime
-        now_dt = datetime.datetime.now().astimezone()
-        hourly = weather_client.get_forecast_hourly()
-        periods = hourly.get("properties", {}).get("periods", []) or []
-        periods = [p for p in periods if datetime.datetime.fromisoformat(p["endTime"]) > now_dt]
-        for p in periods[:limit]:
-            start = str(p.get("startTime", ""))
-            time_short = start[11:16] if len(start) >= 16 else start
-
-            t = p.get("temperature")
-            u = p.get("temperatureUnit", "F")
-            temp = f"{t}°{u}" if t is not None else "—"
-
-            cond = p.get("shortForecast", "—")
-
-            pop = p.get("probabilityOfPrecipitation", {}) or {}
-            popv = pop.get("value")
-            precip = f"{popv}%" if popv is not None else "—"
-
-            ws = p.get("windSpeed", "—")
-            wd = p.get("windDirection", "")
-            wind = f"{ws} {wd}".strip()
-
-            rows.append({"time": time_short, "temp": temp, "cond": cond, "precip": precip, "wind": wind})
-    except Exception:
-        pass
-    return rows
-
-
-def _safe_tomorrow_periods():
-    rows = []
-    try:
-        forecast = weather_client.get_forecast()
-        periods = forecast.get("properties", {}).get("periods", []) or []
-        # Find tomorrow's periods (skip today/tonight)
-        tomorrow_periods = [p for p in periods if p.get("name", "").lower() not in ("today", "tonight")]
-        for p in tomorrow_periods[:2]:  # Day + Night
-            t = p.get("temperature")
-            u = p.get("temperatureUnit", "F")
-            temp = f"{t}°{u}" if t is not None else "—"
-            pop = p.get("probabilityOfPrecipitation", {}) or {}
-            popv = pop.get("value")
-            precip = f"{popv}%" if popv is not None else "—"
-            ws = p.get("windSpeed", "—")
-            wd = p.get("windDirection", "")
-            wind = f"{ws} {wd}".strip()
-            detail = p.get("detailedForecast", "")
-            if len(detail) > 200:
-                detail = detail[:200].rstrip() + "…"
-            rows.append({
-                "name": p.get("name", "—"),
-                "temp": temp,
-                "cond": p.get("shortForecast", "—"),
-                "precip": precip,
-                "wind": wind,
-                "detail": detail,
-            })
-    except Exception:
-        pass
-    return rows
-
-
-def _safe_alerts(limit: int = 5):
-    items = []
-    try:
-        a = weather_client.get_alerts()
-        feats = a.get("features", []) or []
-        for f in feats[:limit]:
-            prop = f.get("properties", {}) or {}
-            headline = prop.get("headline") or prop.get("event") or "Alert"
-            onset = prop.get("onset") or ""
-            ends = prop.get("ends") or ""
-            when = f"{onset} → {ends}".strip(" →")
-            desc = prop.get("description") or ""
-            if len(desc) > 350:
-                desc = desc[:350].rstrip() + "…"
-            items.append({"headline": headline, "when": when or "—", "desc": desc})
-    except Exception:
-        pass
-    return items
-
-
-import os
-import json
-
-RF_STATE_PATH = os.path.join(os.path.dirname(__file__), "rf_state.json")
-
-def _rf_load_state() -> None:
-    try:
-        with open(RF_STATE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            RF_CACHE["wifi"] = data.get("wifi", []) or []
-            RF_CACHE["wifi_note"] = data.get("wifi_note", "—")
-            RF_CACHE["ble"] = data.get("ble", []) or []
-            RF_CACHE["ble_note"] = data.get("ble_note", "—")
-            RF_CACHE["last_scan"] = data.get("last_scan", "—")
-    except Exception:
-        # No saved file yet (or corrupted) -> keep defaults
-        pass
-
-def _rf_save_state() -> None:
-    try:
-        data = {
-            "wifi": RF_CACHE.get("wifi", []) or [],
-            "wifi_note": RF_CACHE.get("wifi_note", "—"),
-            "ble": RF_CACHE.get("ble", []) or [],
-            "ble_note": RF_CACHE.get("ble_note", "—"),
-            "last_scan": RF_CACHE.get("last_scan", "—"),
-        }
-        with open(RF_STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
-
-
-RF_CACHE = {
-    "wifi": [],
-    "wifi_note": "—",
-    "ble": [],
-    "ble_note": "—",
-    "last_scan": "—",
-}
-
-
-@app.get("/")
-def home():
-    ctx = _safe_get_weather_summary()
-    ctx.update(_network_summary())
-
-    # RF summary (load saved scan if cache is empty)
-    try:
-        if RF_CACHE.get("last_scan","—") == "—" and (not RF_CACHE.get("wifi")) and (not RF_CACHE.get("ble")):
-            _rf_load_state()
-    except Exception:
-        pass
-
-    ctx["rf_wifi_count"] = str(len(RF_CACHE.get("wifi", []) or []))
-    ctx["rf_ble_count"] = str(len(RF_CACHE.get("ble", []) or []))
-    ctx["rf_last_scan"] = RF_CACHE.get("last_scan", "—") or "—"
-    ctx["version"] = VERSION
-    ctx["page_loaded_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    ctx.update(_alerts_summary())
-    # Load panel settings
-    panel_settings = settings.load_settings()
-    ctx.update(panel_settings)
-
-    # Build ordered bottom cards from card_order
-    card_order = panel_settings.get("card_order", {"rf": 1, "network": 2, "alerts": 3})
-    card_meta = {
-        "rf":      {"href": "/rf",      "title": "RF / Nearby Signals"},
-        "network": {"href": "/network", "title": "Network / Homelab"},
-        "alerts":  {"href": "/events",  "title": "Alerts / Events"},
-    }
-    card_rows = {
-        "rf":      [("Wi-Fi", ctx["rf_wifi_count"]), ("BLE", ctx["rf_ble_count"]), ("Last Scan", ctx["rf_last_scan"])],
-        "network": [("Devices", ctx["net_devices"]), ("Offline", ctx["net_offline"]), ("Status", ctx["net_status"])],
-        "alerts":  [("Alert Count", ctx["alerts_count"]), ("Severe Weather", ctx["alerts_severe"]), ("Updated", ctx["alerts_updated"])],
-    }
-    ctx["ordered_bottom_cards"] = [
-        {"key": k, "href": card_meta[k]["href"], "title": card_meta[k]["title"], "rows": card_rows[k]}
-        for k, v in sorted(card_order.items(), key=lambda x: (x[1] == 0, x[1]))
-        if v != 0 and k in card_meta
-    ]
-
-    return render_template_string(HOME_HTML, t=get_theme(), **ctx)
-@app.get("/weather")
-def weather_page():
-    ctx = _safe_get_weather_summary()
-    hourly_rows = _safe_hourly_rows(12)
-    alerts = _safe_alerts(5)
-    
-    # Storm proximity banner (from alerts.db)
-    storm_banner = None
-    try:
-        import alerts_db
-        alerts_db.init_db()
-        active = alerts_db.list_alerts(active_only=True, limit=200)
-        prox = [a for a in active if str(a.get("key","")).startswith("wxprox:")]
-        if prox:
-            # show the newest proximity alert title
-            prox.sort(key=lambda x: int(x.get("ts", 0)), reverse=True)
-            storm_banner = prox[0].get("title") or "Storm nearby"
-    except Exception:
-        storm_banner = None
-    # Get dynamic radar station
-    try:
-        points = weather_client.get_points()
-        radar_station = points.get("properties", {}).get("radarStation", "KDDC")
-    except Exception:
-        radar_station = "KDDC"
-
-    panel_settings = settings.load_settings()
-    weather_sections = panel_settings.get("weather_sections", {
-        "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
-    })
-    ordered_sections = [k for k, v in sorted(weather_sections.items(), key=lambda x: (x[1] == 0, x[1])) if v != 0]
-    return render_template_string(
-        WEATHER_HTML,
-        t=get_theme(),
-        time_format=settings.get_setting("time_format", "24hr"),
-        storm_banner=storm_banner,
-        radar_station=radar_station,
-        ordered_sections=ordered_sections,
-        **ctx, hourly_rows=hourly_rows, alerts=alerts,
-        tomorrow_periods=_safe_tomorrow_periods())
-
-@app.get("/network")
-def network_page():
-    cfg_devices = devices_store.load_devices()
-    status_rows = {d["ip"]: d for d in network_read.get_latest_status()}
-
-    cards = []
-    for d in cfg_devices:
-        name = d.get("name", "Unknown")
-        ip = d.get("ip", "")
-        dtype = d.get("type", "")
-
-        st = status_rows.get(ip)
-        if st:
-            is_up = bool(int(st.get("is_up", 0)))
-            status = "UP" if is_up else "DOWN"
-            last_seen = _fmt_ts(st.get("last_seen_ts"))
-        else:
-            status = "UNKNOWN"
-            last_seen = "—"
-
-        services_raw = service_read.get_services_for_ip(ip) if ip else []
-        services = [{"name": s.get("service_name", "svc"), "is_up": bool(int(s.get("is_up", 0)))} for s in services_raw]
-
-        cards.append({"name": name, "ip": ip, "type": dtype, "status": status, "last_seen": last_seen, "services": services})
-
-    return render_template_string(NETWORK_HTML, t=get_theme(), time_format=settings.get_setting("time_format", "24hr"), devices=cards)
-
-
-@app.get("/network/manage")
-def manage_devices():
-    devices = devices_store.load_devices()
-    rows = []
-    for d in devices:
-        rows.append({
-            "name": d.get("name", ""),
-            "ip": d.get("ip", ""),
-            "type": d.get("type", ""),
-            "svc_count": len(d.get("services", []) or []),
-        })
-    return render_template_string(MANAGE_HTML, devices=rows)
-
-
-@app.route("/network/device/new", methods=["GET", "POST"])
-def device_new():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        ip = request.form.get("ip", "").strip()
-        dtype = request.form.get("type", "").strip()
-        services_json = request.form.get("services_json", "")
-
-        try:
-            services = _parse_services_json(services_json)
-        except ValueError as e:
-            dev = {"name": name, "ip": ip, "type": dtype}
-            return render_template_string(DEVICE_FORM_HTML, title="Add Device", dev=dev, services_list_json=services_json, error=str(e))
-
-        devices_store.add_device({"name": name, "ip": ip, "type": dtype, "services": services})
-        return redirect(request.script_root + url_for("manage_devices"))
-
-    dev = {"name": "", "ip": "", "type": ""}
-    return render_template_string(DEVICE_FORM_HTML, title="Add Device", dev=dev, services_list_json="[]", error="")
-
-
-@app.route("/network/device/<int:idx>/edit", methods=["GET", "POST"])
-def device_edit(idx: int):
-    dev0 = devices_store.get_device(idx)
-
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        ip = request.form.get("ip", "").strip()
-        dtype = request.form.get("type", "").strip()
-        services_json = request.form.get("services_json", "")
-
-        try:
-            services = _parse_services_json(services_json)
-        except ValueError as e:
-            show = {"name": name, "ip": ip, "type": dtype}
-            return render_template_string(DEVICE_FORM_HTML, title="Edit Device", dev=show, services_list_json=services_json, error=str(e))
-
-        devices_store.update_device(idx, {"name": name, "ip": ip, "type": dtype, "services": services})
-        return redirect(request.script_root + url_for("manage_devices"))
-
-    import json
-    services_json = json.dumps(dev0.get("services", []) or [], indent=2)
-    show = {"name": dev0.get("name", ""), "ip": dev0.get("ip", ""), "type": dev0.get("type", "")}
-    return render_template_string(DEVICE_FORM_HTML, title="Edit Device", dev=show, services_list_json=services_json, error="")
-
-
-@app.route("/network/device/<int:idx>/delete", methods=["GET", "POST"])
-def device_delete(idx: int):
-    dev = devices_store.get_device(idx)
-    if request.method == "POST":
-        devices_store.delete_device(idx)
-        return redirect(request.script_root + url_for("manage_devices"))
-    show = {"name": dev.get("name", ""), "ip": dev.get("ip", ""), "type": dev.get("type", "")}
-    return render_template_string(DELETE_HTML, dev=show)
-
-
-
-
-@app.get("/rf")
-def rf_page():
-    # Load last scan from disk (survives restarts)
-    if RF_CACHE.get("last_scan","—") == "—" and (not RF_CACHE.get("wifi")) and (not RF_CACHE.get("ble")):
-        _rf_load_state()
-    return render_template_string(
-        RF_HTML,
-        t=get_theme(),
-        time_format=settings.get_setting("time_format", "24hr"),
-        wifi=RF_CACHE["wifi"],
-        wifi_count=len(RF_CACHE["wifi"]),
-        wifi_note=RF_CACHE["wifi_note"],
-        ble=RF_CACHE["ble"],
-        ble_rows=RF_CACHE["ble"],
-        ble_count=len(RF_CACHE["ble"]),
-        ble_note=RF_CACHE["ble_note"],
-        last_scan=RF_CACHE["last_scan"],
+# =========================
+# GLOBAL "APPS" BUTTON INJECTION (ALL HTML PAGES)
+# =========================
+from flask import Response
+import re
+
+def _apps_button_html() -> str:
+    return (
+        '<a href="#" id="appsBtn" onclick="window.location=\'/\'; return false;" style="'
+        'position:fixed;top:12px;left:12px;'
+        'padding:10px 14px;'
+        'border-radius:12px;'
+        'background:rgba(0,0,0,.65);'
+        'color:#fff;'
+        'text-decoration:none;'
+        'font-weight:800;'
+        'z-index:2147483647;'
+        'border:1px solid rgba(255,255,255,.25);'
+        '">Apps</a>'
+        '<div style="height:44px"></div>'
     )
 
 
-@app.get("/rf/scan")
-def rf_scan_now():
-    wifi, wifi_note = rf_scan.scan_wifi()
-    ble, ble_note = rf_scan.scan_ble()
-
-    wifi_rows = []
-    for n in wifi:
-        wifi_rows.append({
-            "ssid": n.get("ssid", "—"),
-            "signal": n.get("signal", "—"),
-            "security": n.get("security", "—"),
-        })
-
-    RF_CACHE["wifi"] = wifi_rows
-    RF_CACHE["wifi_note"] = wifi_note
-    ble_rows = []
-    for b in (ble or []):
-        if isinstance(b, dict):
-            ble_rows.append({"mac": b.get("mac","—"), "name": b.get("name","—")})
-    RF_CACHE["ble"] = ble_rows
-    RF_CACHE["ble_note"] = ble_note
-
-    import time
-    RF_CACHE["last_scan"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _rf_save_state()
-
-
-    script_root = request.environ.get("SCRIPT_NAME", "")
-    return redirect(request.script_root + url_for("rf_page"))
-
-
-@app.get("/events")
-def events_page():
+@app.after_request
+def _inject_apps_button(resp: Response):
     try:
-        alerts_db.init_db()
+        # Don't touch streamed / passthrough responses
+        if getattr(resp, "direct_passthrough", False):
+            return resp
+
+        ct = (resp.headers.get("Content-Type") or "").lower()
+
+        # Only touch HTML responses
+        if "text/html" not in ct:
+            return resp
+
+        # Don't touch redirects or empty bodies
+        if resp.status_code in (301, 302, 303, 304) or not resp.get_data():
+            return resp
+
+        html = resp.get_data(as_text=True)
+
+        # Avoid double-injecting if already present
+        if 'id="appsBtn"' in html:
+            return resp
+
+        btn = _apps_button_html()
+
+        # Inject right after <body ...> if possible
+        m = re.search(r"<body[^>]*>", html, flags=re.IGNORECASE)
+        if m:
+            insert_at = m.end()
+            html = html[:insert_at] + btn + html[insert_at:]
+        else:
+            # Fallback: just prepend to the document
+            html = btn + html
+
+        resp.set_data(html)
+
+        # Content length may be wrong after modifying the body
+        if "Content-Length" in resp.headers:
+            del resp.headers["Content-Length"]
+
+        return resp
+
     except Exception:
-        pass
+        # If anything goes wrong, fail open (serve the page normally)
+        return resp
 
-    import time
-    now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    active = alerts_db.list_alerts(active_only=True, limit=50)
-    recent = alerts_db.list_alerts(active_only=False, limit=100)
 
-    def local_ts(ts: int) -> str:
-        try:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(ts)))
-        except Exception:
-            return "—"
+# ============================================================
+# SECTION: Constants / Config
+# ============================================================
 
-    for a in active:
-        a["ts_local"] = local_ts(a.get("ts", 0))
-    for r in recent:
-        r["ts_local"] = local_ts(r.get("ts", 0))
+# ------------------------------------------------------------
+# SUBSECTION: App Port
+# ------------------------------------------------------------
+APP_PORT = 5000
 
-    # NWS alerts with proximity distances
-    nws_alerts = []
+# ------------------------------------------------------------
+# SUBSECTION: Shelves
+# ------------------------------------------------------------
+SHELVES = [1, 2, 3, 4]
+DEFAULT_SHELF = 1
+
+# ------------------------------------------------------------
+# SUBSECTION: Paths
+# ------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "inventory.db")
+UPLOAD_TMP = os.path.join(BASE_DIR, "inventory.restore.tmp")
+
+# ============================================================
+# SECTION: UI Helpers
+# ============================================================
+
+# ------------------------------------------------------------
+# SUBSECTION: Base URL helpers (LAN-safe QR links)
+# ------------------------------------------------------------
+def _get_lan_ip_fallback():
+    """
+    Tries to determine the Pi's LAN IP without requiring internet.
+    This is used so QR codes work from the touchscreen even if the
+    kiosk browser is on 127.0.0.1.
+    """
     try:
-        data = weather_client.get_alerts()
-        for f in (data.get("features") or []):
-            props = (f.get("properties") or {})
-            geom = (f.get("geometry") or {})
-            event = props.get("event") or "Weather Alert"
-            severity = props.get("severity") or "Unknown"
-            headline = (props.get("headline") or "").strip()
-            onset = props.get("onset") or ""
-            ends = props.get("ends") or props.get("expires") or ""
-            dist = storm_proximity.distance_to_geometry_miles(
-                storm_proximity.HOME_LAT, storm_proximity.HOME_LON, geom
-            ) if geom else None
-            nws_alerts.append({
-                "event": event,
-                "severity": severity,
-                "headline": headline,
-                "onset": onset[:16].replace("T", " ") if onset else "—",
-                "ends": ends[:16].replace("T", " ") if ends else "—",
-                "dist_miles": f"{dist:.1f}" if dist is not None else None,
-            })
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Doesn't need to be reachable; no packets are actually sent.
+        s.connect(("1.1.1.1", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
     except Exception:
-        pass
+        return "127.0.0.1"
 
-    # Live device status
-    devices_status = []
+
+def _get_base_url():
+    """
+    Returns a base URL suitable for sharing (QR/export links).
+    Priority:
+      1) STOCKPI_BASE_URL env var
+      2) LAN IP + APP_PORT
+    """
+    env_base = (os.environ.get("STOCKPI_BASE_URL") or "").strip()
+    if env_base:
+        return env_base.rstrip("/")
+
+    ip = _get_lan_ip_fallback()
+    return f"http://{ip}:{APP_PORT}"
+
+
+# ------------------------------------------------------------
+# SUBSECTION: Styles
+# ------------------------------------------------------------
+_PANEL_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), '..', 'homepanel', 'panel_settings.json')
+
+_KITCHEN_THEMES = {
+    "dark":  {"bg":"#0f1115","panel":"#151922","panel2":"#111520","text":"#e7e9ee","muted":"#a8b0c2","border":"#2a3142","btn":"#1b2231","btnHover":"#232c3f","input":"#0f1420","shadow":"rgba(0,0,0,0.35)"},
+    "light": {"bg":"#f0f2f5","panel":"#ffffff","panel2":"#f7f9fc","text":"#111827","muted":"#6b7280","border":"#d1d5db","btn":"#e5e7eb","btnHover":"#d1d5db","input":"#f9fafb","shadow":"rgba(0,0,0,.12)"},
+    "dim":   {"bg":"#1e2433","panel":"#252d3d","panel2":"#202840","text":"#cdd5e0","muted":"#7d8ea8","border":"#334155","btn":"#2a3347","btnHover":"#303d54","input":"#181f2d","shadow":"rgba(0,0,0,.35)"},
+}
+
+def _get_kitchen_theme():
     try:
-        devices_status = network_read.get_latest_status()
-        for d in devices_status:
-            d["last_seen_local"] = local_ts(d.get("last_seen_ts", 0))
+        import json as _j
+        with open(_PANEL_SETTINGS_PATH) as f:
+            data = _j.load(f)
+        return _KITCHEN_THEMES.get(data.get("theme", "dark"), _KITCHEN_THEMES["dark"])
     except Exception:
-        pass
+        return _KITCHEN_THEMES["dark"]
 
-    return render_template_string(
-        EVENTS_HTML,
-        t=get_theme(),
-        time_format=settings.get_setting("time_format", "24hr"),
-        active=active,
-        recent=recent,
-        active_count=str(len(active)),
-        updated=now,
-        nws_alerts=nws_alerts,
-        devices_status=devices_status,
+def _styles():
+    t = _get_kitchen_theme()
+    root_block = (
+        f"--bg:{t['bg']};--panel:{t['panel']};--panel2:{t['panel2']};"
+        f"--text:{t['text']};--muted:{t['muted']};--border:{t['border']};"
+        f"--danger:#ff4d4d;--ok:#39d98a;--warn:#f7c948;"
+        f"--btn:{t['btn']};--btnHover:{t['btnHover']};--input:{t['input']};"
+        f"--shadow:{t['shadow']};"
     )
-
-@app.get("/api/launcher")
-def api_launcher():
-    import json as _json
-    panel_settings = settings.load_settings()
-
-    _theme_obj = THEMES.get(panel_settings.get("theme", "dark"), THEMES["dark"])
-    data = {
-        "show_kitchen_button": panel_settings.get("show_kitchen_button", True),
-        "show_info_panel_button": panel_settings.get("show_info_panel_button", True),
-        "show_weather_on_launcher": panel_settings.get("show_weather_on_launcher", False),
-        "time_format": panel_settings.get("time_format", "24hr"),
-        "theme": {f"--{k}": v for k, v in _theme_obj.items()},
-    }
-
-    if data["show_weather_on_launcher"]:
-        weather_sections = panel_settings.get("weather_sections", {
-            "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
-        })
-        ordered = [k for k, v in sorted(weather_sections.items(), key=lambda x: (x[1] == 0, x[1])) if v != 0]
-        data["weather_sections"] = ordered
-
-        wx = _safe_get_weather_summary()
-        data["weather"] = {
-            "ok": wx["wx_ok"],
-            "location": wx["wx_location"],
-            "temp": wx["wx_temp"],
-            "condition": wx["wx_condition"],
-            "feels": wx["wx_feels"],
-            "hi": wx["wx_hi"],
-            "lo": wx["wx_lo"],
-            "precip": wx["wx_precip"],
-            "updated": wx["wx_updated"],
-        }
-
-        if "hourly" in ordered:
-            data["hourly"] = _safe_hourly_rows(12)
-        if "alerts" in ordered:
-            data["alerts"] = _safe_alerts(5)
-        if "forecast" in ordered:
-            data["forecast"] = _safe_tomorrow_periods()
-        if "radar" in ordered:
-            try:
-                points = weather_client.get_points()
-                data["radar_station"] = points.get("properties", {}).get("radarStation", "KDDC")
-            except Exception:
-                data["radar_station"] = "KDDC"
-
-        try:
-            alerts_db.init_db()
-            active = alerts_db.list_alerts(active_only=True, limit=200)
-            prox = [a for a in active if str(a.get("key", "")).startswith("wxprox:")]
-            if prox:
-                prox.sort(key=lambda x: int(x.get("ts", 0)), reverse=True)
-                data["storm_banner"] = prox[0].get("title") or "Storm nearby"
-            else:
-                data["storm_banner"] = None
-        except Exception:
-            data["storm_banner"] = None
-
-    resp = Response(_json.dumps(data), mimetype="application/json")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-# ============================
-# System controls (behind nginx)
-# ============================
-
-@app.route("/system/")
-def system_menu():
     return """
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>System</title>
-      <style>
-        body{font-family:system-ui,Segoe UI,Roboto,Arial; padding:18px; background:#0f1115; color:#e7e9ee;}
-        a,button{display:block; width:100%; padding:18px; margin:12px 0; font-size:20px; border-radius:14px;
-                 border:1px solid #2a3142; background:#1b2231; color:#e7e9ee; text-decoration:none; font-weight:800;}
-        .danger{background:rgba(255,77,77,0.12); border-color:rgba(255,77,77,0.35);}
-        .muted{color:#a8b0c2; font-size:14px;}
-      </style>
-    </head>
-    <body>
-      <a href="/" style="position:fixed;top:12px;left:12px;width:auto;padding:10px 14px;border-radius:12px;">🏠 Apps</a>
-      <h1 style="margin-top:58px;">System</h1>
-      <div class="muted">These buttons control services on this Pi.</div>
-
-      <form method="post" action="/system/restart">
-        <button type="submit">Restart Apps</button>
-      </form>
-
-      <form method="post" action="/system/update" onsubmit="return confirm('Pull latest from GitHub and restart?')">
-        <button type="submit">Update from GitHub</button>
-      </form>
-
-      <form method="post" action="/system/reboot">
-        <button class="danger" type="submit">Reboot Pi</button>
-      </form>
-    </body>
-    </html>
+    <style>
+      :root{""" + root_block + """}
+      * { box-sizing: border-box; }
+      body { margin:0; background: var(--bg); color: var(--text);
+             font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+      .wrap{ min-height:100vh; display:flex; justify-content:center; padding:18px; }
+      .container{ width:100%; max-width:820px; }
+      header{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+      h1{ font-size:28px; margin:0; }
+      .sub{ color:var(--muted); font-size:14px; }
+      .row{ margin:12px 0; }
+      .card{ background: linear-gradient(180deg,var(--panel) 0%,var(--panel2) 100%);
+             border:1px solid var(--border); border-radius:16px; padding:14px; margin:12px 0; box-shadow:0 10px 30px var(--shadow); }
+      .card h2{ margin:0 0 10px 0; font-size:18px; }
+      .status{ padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:rgba(255,255,255,0.03);
+               margin:10px 0 14px 0; font-weight:800; opacity:1; transition:opacity 220ms ease, transform 220ms ease; }
+      .status.ok{ color:var(--ok); } .status.danger{ color:var(--danger); } .status.warn{ color:var(--warn); }
+      .status.hide{ opacity:0; transform: translateY(-4px); }
+      .chip{ display:inline-block; padding:7px 11px; border:1px solid var(--border); border-radius:999px;
+             background:rgba(255,255,255,0.03); margin-left:8px; font-size:14px; }
+      .muted{ color:var(--muted); font-size:14px; }
+      .btn{ appearance:none; border:1px solid var(--border); background:var(--btn); color:var(--text);
+            padding:12px 14px; border-radius:14px; font-size:16px; cursor:pointer; text-decoration:none;
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
+            transition:transform .05s ease, background .15s ease, border-color .15s ease; }
+      .btn:hover{ background:var(--btnHover); border-color:#39425a; } .btn:active{ transform: translateY(1px); }
+      .btn-wide{ width:220px; max-width:100%; } .zone-btn{ min-width:150px; }
+      .btn-danger{ border-color: rgba(255,77,77,0.35); background: rgba(255,77,77,0.10); }
+      .btn-danger:hover{ background: rgba(255,77,77,0.16); border-color: rgba(255,77,77,0.55); }
+      .btn-warn{ border-color: rgba(247,201,72,0.35); background: rgba(247,201,72,0.10); }
+      .btn-warn:hover{ background: rgba(247,201,72,0.16); border-color: rgba(247,201,72,0.55); }
+      .fieldRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+      input[type=text]{ width:min(440px,100%); font-size:18px; padding:12px; border-radius:14px; border:1px solid var(--border);
+                        background:var(--input); color:var(--text); outline:none; }
+      input[type=text]:focus{ border-color: rgba(90,162,255,0.6); box-shadow:0 0 0 3px rgba(90,162,255,0.18); }
+      input[type=file]{ color: var(--muted); }
+      select, input[type=number]{ font-size:16px; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
+              background:var(--input); color:var(--text); outline:none; }
+      select:focus, input[type=number]:focus{ border-color: rgba(90,162,255,0.6); box-shadow:0 0 0 3px rgba(90,162,255,0.18); }
+      table{ width:100%; border-collapse:collapse; border:1px solid var(--border); background:rgba(255,255,255,0.02);
+             border-radius:14px; overflow:hidden; }
+      th,td{ padding:10px; border-bottom:1px solid var(--border); }
+      th{ text-align:left; color:var(--muted); font-weight:900; background:rgba(255,255,255,0.03); }
+      tr:last-child td{ border-bottom:none; }
+      .qty-zero{ color:var(--danger); font-weight:900; }
+      .qty-low{ color:var(--warn); font-weight:900; }
+      .navRow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+      form.inline{ display:inline; }
+      .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+      @media (max-width:520px){ h1{font-size:24px;} .btn-wide{width:100%;} .zone-btn{min-width:46%;} }
+    </style>
     """
 
-@app.route("/system/restart", methods=["POST"])
-def system_restart():
-    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
-    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
-    return """<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Restarting...</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;}
-  .card{background:#151922;border:1px solid #2a3142;border-radius:16px;
-        padding:40px 48px;text-align:center;max-width:380px;width:90%;}
-  h1{font-size:22px;margin-bottom:12px;}
-  p{color:#a8b0c2;font-size:15px;margin-bottom:24px;}
-  .spinner{width:40px;height:40px;border:3px solid #2a3142;
-           border-top-color:#4CAF50;border-radius:50%;
-           animation:spin 0.8s linear infinite;margin:0 auto 20px;}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .countdown{font-size:36px;font-weight:900;color:#4CAF50;margin-bottom:8px;}
-  .hint{color:#a8b0c2;font-size:13px;}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="spinner"></div>
-  <h1>Restarting Apps</h1>
-  <p>Services are restarting. You will be redirected shortly.</p>
-  <div class="countdown" id="cd">5</div>
-  <div class="hint">Redirecting in <span id="s">5</span> seconds...</div>
-</div>
-<script>
-  let t = 5;
-  const cd = document.getElementById('cd');
-  const s = document.getElementById('s');
-  const iv = setInterval(() => {
-    t--;
-    cd.textContent = t;
-    s.textContent = t;
-    if (t <= 0) { clearInterval(iv); location.href = '/'; }
-  }, 1000);
-</script>
-</body></html>"""
 
-@app.route("/system/reboot", methods=["POST"])
-def system_reboot():
-    subprocess.run(["/usr/bin/sudo", "/sbin/reboot"], check=False)
-    return """<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rebooting...</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;}
-  .card{background:#151922;border:1px solid #2a3142;border-radius:16px;
-        padding:40px 48px;text-align:center;max-width:380px;width:90%;}
-  h1{font-size:22px;margin-bottom:12px;}
-  p{color:#a8b0c2;font-size:15px;margin-bottom:24px;}
-  .spinner{width:40px;height:40px;border:3px solid #2a3142;
-           border-top-color:#e67e22;border-radius:50%;
-           animation:spin 0.8s linear infinite;margin:0 auto 20px;}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .countdown{font-size:36px;font-weight:900;color:#e67e22;margin-bottom:8px;}
-  .hint{color:#a8b0c2;font-size:13px;}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="spinner"></div>
-  <h1>Rebooting Pi</h1>
-  <p>The Pi is rebooting. This will take about 30 seconds.</p>
-  <div class="countdown" id="cd">30</div>
-  <div class="hint">Attempting to reconnect in <span id="s">30</span> seconds...</div>
-</div>
-<script>
-  let t = 30;
-  const cd = document.getElementById('cd');
-  const s = document.getElementById('s');
-  const iv = setInterval(() => {
-    t--;
-    cd.textContent = t;
-    s.textContent = t;
-    if (t <= 0) { clearInterval(iv); location.href = '/'; }
-  }, 1000);
-</script>
-</body></html>"""
+# ============================================================
+# SECTION: Banner timing (env overrides)
+# ============================================================
+BANNER_MS = int(os.environ.get("STOCKPI_BANNER_MS", "6000"))
+BANNER_MS_ERROR = int(os.environ.get("STOCKPI_BANNER_MS_ERROR", "9000"))
 
-@app.route("/system/update", methods=["POST"])
-def system_update():
-    result = subprocess.run(
-        ["/usr/bin/git", "-C", str(REPO_DIR), "pull"],
-        capture_output=True, text=True, timeout=60
-    )
-    output = (result.stdout + result.stderr).strip()
-    if result.returncode != 0:
-        return f"""<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Update Failed</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;}}
-  .card{{background:#151922;border:1px solid #2a3142;border-radius:16px;
-        padding:40px 48px;text-align:center;max-width:480px;width:90%;}}
-  h1{{font-size:22px;margin-bottom:12px;color:#f87171;}}
-  pre{{text-align:left;background:#0b0f14;border:1px solid #2a3142;border-radius:8px;
-       padding:12px;font-size:13px;color:#a8b0c2;overflow-x:auto;margin:16px 0;white-space:pre-wrap;}}
-  a{{color:#60a5fa;}}
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>Update Failed</h1>
-  <pre>{output}</pre>
-  <a href="/system/">Back</a>
-</div>
-</body></html>"""
 
-    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "kitchen.service"], check=False)
-    time.sleep(5)
-    subprocess.run(["/usr/bin/sudo", "/bin/systemctl", "restart", "infopanel.service"], check=False)
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Updating...</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{background:#0f1115;color:#e7e9ee;font-family:system-ui,sans-serif;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;}}
-  .card{{background:#151922;border:1px solid #2a3142;border-radius:16px;
-        padding:40px 48px;text-align:center;max-width:480px;width:90%;}}
-  h1{{font-size:22px;margin-bottom:12px;}}
-  pre{{text-align:left;background:#0b0f14;border:1px solid #2a3142;border-radius:8px;
-       padding:12px;font-size:13px;color:#a8b0c2;overflow-x:auto;margin:16px 0;white-space:pre-wrap;}}
-  .spinner{{width:40px;height:40px;border:3px solid #2a3142;
-           border-top-color:#4CAF50;border-radius:50%;
-           animation:spin 0.8s linear infinite;margin:0 auto 20px;}}
-  @keyframes spin{{to{{transform:rotate(360deg)}}}}
-  .countdown{{font-size:36px;font-weight:900;color:#4CAF50;margin-bottom:8px;}}
-  .hint{{color:#a8b0c2;font-size:13px;}}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="spinner"></div>
-  <h1>Update Applied</h1>
-  <pre>{output}</pre>
-  <div class="countdown" id="cd">8</div>
-  <div class="hint">Restarting services, redirecting in <span id="s">8</span> seconds...</div>
-</div>
-<script>
-  let t = 8;
-  const cd = document.getElementById('cd');
-  const s = document.getElementById('s');
-  const iv = setInterval(() => {{
-    t--;
-    cd.textContent = t;
-    s.textContent = t;
-    if (t <= 0) {{ clearInterval(iv); location.href = '/'; }}
-  }}, 1000);
-</script>
-</body></html>"""
 
-#
-@app.get("/settings/weather")
-def weather_settings_page():
-    current_settings = settings.load_settings()
-    weather_sections = current_settings.get("weather_sections", {
-        "current": 1, "hourly": 2, "alerts": 3, "forecast": 4, "radar": 5
-    })
-    return render_template_string(WEATHER_SETTINGS_HTML, t=get_theme(), weather_sections=weather_sections)
+# ------------------------------------------------------------
+# SUBSECTION: Banner auto-hide
+# ------------------------------------------------------------
+def _auto_hide_banner_js():
+    """
+    Auto-hides the top status banner after a delay so kiosk users can read it.
+    Uses longer delay for error banners.
+    Controlled by env vars:
+      - STOCKPI_BANNER_MS (default 10000)
+      - STOCKPI_BANNER_MS_ERROR (default 20000)
+    """
+    return f"""
+    <script>
+    (function() {{
+      function hide(el) {{
+        if (!el) return;
+        el.style.opacity = "0";
+        el.style.transform = "translateY(-6px)";
+        setTimeout(function() {{
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }}, 350);
+      }}
 
-@app.post("/settings/weather/update")
-def weather_settings_update():
-    current_settings = settings.load_settings()
-    sections = {}
-    for key in ["current", "hourly", "alerts", "forecast", "radar"]:
-        try:
-            sections[key] = int(request.form.get(f"section_{key}", 0))
-        except ValueError:
-            sections[key] = 0
-    current_settings["weather_sections"] = sections
-    settings.save_settings(current_settings)
-    return redirect(request.referrer or request.script_root + "/settings")
+      window.addEventListener("load", function() {{
+        var el = document.querySelector(".status");
+        if (!el) return;
 
-@app.get("/settings")
-def settings_page():
-    current_settings = settings.load_settings()
-    current_settings["weather_zip"] = weather_client.get_weather_zip()
+        var isError = el.classList.contains("danger") || el.classList.contains("error");
+        var delay = isError ? {BANNER_MS_ERROR} : {BANNER_MS};
+
+        el.style.cursor = "pointer";
+        el.title = "Tap to dismiss";
+        el.addEventListener("click", function() {{ hide(el); }});
+
+        setTimeout(function() {{ hide(el); }}, delay);
+      }});
+    }})();
+    </script>
+    """
+
+
+# ------------------------------------------------------------
+# SUBSECTION: Banner HTML (reads msg/msgtype from querystring)
+# ------------------------------------------------------------
+def _page_status_html():
+    msg = request.args.get("msg", "")
+    msgtype = request.args.get("msgtype", "ok")
+    if not msg:
+        return ""
+    cls = "ok" if msgtype == "ok" else ("warn" if msgtype == "warn" else "danger")
+    return f"<div id='statusBanner' class='status {cls}'>{msg}</div>"
+
+
+# ============================================================
+# SECTION: Location Helpers
+# ============================================================
+
+def _locations_map():
+    locs = get_locations()
+    if not locs:
+        locs = [{"name": "Pantry", "has_shelves": True}]
+    return {l["name"]: bool(l["has_shelves"]) for l in locs}
+
+
+def _selected_zone_shelf():
+    loc_map = _locations_map()
+    zone = request.args.get("zone") or next(iter(loc_map.keys()))
+    if zone not in loc_map:
+        zone = next(iter(loc_map.keys()))
+
+    shelf = request.args.get("shelf", str(DEFAULT_SHELF))
     try:
-        git_version = subprocess.check_output(
-            ["/usr/bin/git", "-C", str(REPO_DIR), "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        shelf_i = int(shelf)
     except Exception:
-        git_version = "unknown"
-    current_settings["git_version"] = git_version
-    return render_template_string(SETTINGS_HTML, t=get_theme(), **current_settings)
+        shelf_i = DEFAULT_SHELF
+    if shelf_i not in SHELVES:
+        shelf_i = DEFAULT_SHELF
 
-@app.post("/settings/update")
-def settings_update():
-    current_settings = settings.load_settings()
+    return zone, shelf_i, loc_map
 
-    # Save ZIP code if changed
-    new_zip = request.form.get('weather_zip', '').strip()
-    if new_zip and new_zip.isdigit() and len(new_zip) == 5:
-        import json as _json, glob
-        cfg_path = os.path.join(os.path.dirname(__file__), 'config.json')
-        try:
-            with open(cfg_path, 'r') as f:
-                cfg = _json.load(f)
-        except Exception:
-            cfg = {}
-        cfg.setdefault('weather', {})['zip'] = new_zip
-        # Also update lat/lon for storm proximity
-        try:
-            lat, lon = weather_client.resolve_zip_to_latlon(new_zip)
-            cfg.setdefault('location', {})['lat'] = lat
-            cfg.setdefault('location', {})['lon'] = lon
-        except Exception:
-            pass
-        with open(cfg_path, 'w') as f:
-            _json.dump(cfg, f, indent=2)
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'points_*.json')):
-            try: os.remove(old_cache)
-            except Exception: pass
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'zip_*.json')):
-            try: os.remove(old_cache)
-            except Exception: pass
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'hourly_*.json')):
-            try: os.remove(old_cache)
-            except Exception: pass
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'forecast_*.json')):
-            try: os.remove(old_cache)
-            except Exception: pass
-        for old_cache in glob.glob(os.path.join(os.path.dirname(__file__), 'data_cache', 'alerts_*.json')):
-            try: os.remove(old_cache)
-            except Exception: pass
 
-    
-    # Update settings from form checkboxes
-    current_settings["weather_enabled"] = request.form.get("weather_enabled") == "on"
-    card_order = {}
-    for key in ("rf", "network", "alerts"):
-        try:
-            card_order[key] = int(request.form.get(f"card_order_{key}", 1))
-        except (ValueError, TypeError):
-            card_order[key] = 1
-    current_settings["card_order"] = card_order
-    # Keep legacy flags in sync for any code still referencing them
-    current_settings["rf_enabled"] = card_order.get("rf", 1) != 0
-    current_settings["network_enabled"] = card_order.get("network", 1) != 0
-    current_settings["alerts_enabled"] = card_order.get("alerts", 1) != 0
-    current_settings["show_kitchen_button"] = request.form.get("show_kitchen_button") == "on"
-    current_settings["show_info_panel_button"] = request.form.get("show_info_panel_button") == "on"
-    current_settings["show_weather_on_launcher"] = request.form.get("show_weather_on_launcher") == "on"
-    time_format = request.form.get("time_format", "24hr")
-    if time_format in ("12hr", "24hr"):
-        current_settings["time_format"] = time_format
-    theme = request.form.get("theme", "dark")
-    if theme in ("dark", "light", "dim"):
-        current_settings["theme"] = theme
+def _build_location(zone, shelf, loc_map):
+    if loc_map.get(zone, False):
+        return f"{zone} Shelf {shelf}"
+    return zone
 
-    settings.save_settings(current_settings)
-    return redirect("/")  # Changed from settings_page to home
+
+def _zone_buttons(current_zone, current_shelf, loc_map):
+    html = ""
+    for name in sorted(loc_map.keys()):
+        if loc_map.get(name, False):
+            html += f"""<a class="btn zone-btn" href="/?zone={name.replace(' ', '%20')}&shelf={current_shelf}">{name}</a>"""
+        else:
+            html += f"""<a class="btn zone-btn" href="/?zone={name.replace(' ', '%20')}">{name}</a>"""
+    return html
+
+
+def _shelf_selector(current_zone, current_shelf, loc_map):
+    if not loc_map.get(current_zone, False):
+        return "<div class='muted'>Shelf: <span class='chip'>N/A</span></div>"
+
+    options = ""
+    for s in SHELVES:
+        selected = "selected" if s == current_shelf else ""
+        options += f"<option value='{s}' {selected}>{s}</option>"
+
+    return f"""
+      <div class="row">
+        <form method="get" action="/" class="fieldRow">
+          <input type="hidden" name="zone" value="{current_zone}">
+          <b>Shelf #:</b>
+          <select name="shelf" onchange="this.form.submit()">
+            {options}
+          </select>
+          <span class="muted">(this zone uses shelves)</span>
+        </form>
+      </div>
+    """
+
+def _home_url(zone, shelf, focus='scan', msg="", msgtype="ok"):
+    url = f"/kitchen/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    if msg:
+        url += f"&msg={msg.replace(' ', '%20')}"
+    return url
+
+def _home_href(zone, shelf, focus='scan', msg="", msgtype="ok"):
+    url = f"/?zone={zone.replace(' ', '%20')}&shelf={shelf}&focus={focus}&msgtype={msgtype}"
+    if msg:
+        url += f"&msg={msg.replace(' ', '%20')}"
+    return url
+
+
+# ============================================================
+# SECTION: Routes — Home + Scan
+# ============================================================
+
+@app.route("/")
+def home():
+    zone, shelf, loc_map = _selected_zone_shelf()
+    location = _build_location(zone, shelf, loc_map)
+    focus = request.args.get("focus", "scan")
+    status_html = _page_status_html()
+
+    focus_js = f"""
+    <script>
+      window.onload = function() {{
+        var focusTarget = "{focus}";
+        var el = null;
+        if (focusTarget === "remove") el = document.getElementById("remove_barcode");
+        else el = document.getElementById("scan_barcode");
+        if (el) {{ el.focus(); el.select(); }}
+      }};
+    </script>
+    """
+
+    page_loaded_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}{focus_js}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>StockPi <span style="font-size:13px;font-weight:400;opacity:0.6">v{VERSION}</span></h1><div class="sub">Fast scan, local-first, touchscreen-friendly</div></div>
+        <div class="muted" style="text-align:right">Location <span class="chip">{location}</span><br><span style="font-size:12px">Data as of {page_loaded_at}</span></div>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <h2>Location</h2>
+        <div class="muted">Pick a zone. Some zones have shelves.</div>
+        <div class="row">{_zone_buttons(zone, shelf, loc_map)}</div>
+        {_shelf_selector(zone, shelf, loc_map)}
+      </div>
+
+      <div class="card">
+        <h2>Scan (+1)</h2>
+        <form method="post" action="/scan?zone={zone.replace(' ', '%20')}&shelf={shelf}">
+          <div class="fieldRow">
+            <input id="scan_barcode" type="text" name="barcode" placeholder="Scan barcode">
+            <button class="btn btn-wide" type="submit">Scan</button>
+          </div>
+        </form>
+        <div class="muted row">If item exists: auto +1. If new: link to existing OR enter name once.</div>
+      </div>
+
+      <div class="card">
+        <h2>Remove (-1)</h2>
+        <form method="post" action="/remove-one?zone={zone.replace(' ', '%20')}&shelf={shelf}">
+          <div class="fieldRow">
+            <input id="remove_barcode" type="text" name="barcode" placeholder="Scan to remove">
+            <button class="btn btn-wide btn-danger" type="submit">Remove</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="navRow">
+        <a class="btn btn-wide" href="/move?zone={zone.replace(' ', '%20')}&shelf={shelf}">Move Location</a>
+        <a class="btn btn-wide" href="/inventory">Inventory</a>
+        <a class="btn btn-wide" href="/grocery-list">Grocery List</a>
+        <a class="btn btn-wide" href="/low-stock?zone={zone.replace(' ', '%20')}&shelf={shelf}">Low Stock</a>
+        <a class="btn btn-wide" href="/tools">Tools</a>
+      </div>
+
+    </div></div>
+    """
+
+
+@app.route("/scan", methods=["POST"])
+def scan():
+    zone, shelf, loc_map = _selected_zone_shelf()
+    _location = _build_location(zone, shelf, loc_map)
+
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect(_home_url(zone, shelf, focus='scan', msg="Barcode required", msgtype="danger"))
+
+    item = get_item_by_barcode(barcode)
+    if item:
+        increment_existing(barcode)
+        return redirect(_home_url(zone, shelf, focus='scan', msg=f"Added {item[1]} (+1)", msgtype="ok"))
+
+    # Unknown barcode → go to resolver UI (alias or new item)
+    return redirect("/kitchen" + url_for("resolve_barcode_page", barcode=barcode, zone=zone, shelf=shelf))
+
+
+@app.route("/new-item", methods=["POST"])
+def new_item():
+    zone, shelf, _loc_map = _selected_zone_shelf()
+    barcode = (request.form.get("barcode", "") or "").strip()
+    name = (request.form.get("name", "") or "").strip()
+    location = (request.form.get("location", "") or "").strip()
+
+    add_item(barcode, name, location)
+    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Saved {name} (+1)", msgtype="ok"))
+
+
+# ============================================================
+# SECTION: Routes — Resolve Barcode (Alias vs New Item)
+# ============================================================
+
+@app.route("/resolve_barcode", methods=["GET", "POST"])
+def resolve_barcode_page():
+    zone, shelf, loc_map = _selected_zone_shelf()
+    location = _build_location(zone, shelf, loc_map)
+
+    barcode = (request.args.get("barcode") or request.form.get("barcode") or "").strip()
+    if not barcode:
+        return redirect(_home_url(zone, shelf, focus='scan'))
+
+    # If it already resolves, treat it as known and just add +1
+    canonical = resolve_barcode(barcode)
+    if canonical:
+        increment_existing(canonical)
+        item = get_item_by_barcode(canonical)
+        name = item[1] if item else canonical
+        return redirect(_home_url(zone, shelf, focus='scan', msg=f"Added {name} (+1)", msgtype="ok"))
+
+    error = None
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+
+        if action == "alias":
+            canonical_barcode = (request.form.get("canonical_barcode") or "").strip()
+            if not canonical_barcode:
+                error = "Pick an existing item to link this barcode to."
+            else:
+                try:
+                    add_barcode_alias(barcode, canonical_barcode)
+                    # After linking, add +1 to the canonical item immediately
+                    increment_existing(canonical_barcode)
+                    item = get_item_by_barcode(canonical_barcode)
+                    name = item[1] if item else canonical_barcode
+                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Linked + Added {name} (+1)", msgtype="ok"))
+                except Exception as e:
+                    error = str(e)
+
+        elif action == "new":
+            name = (request.form.get("name") or "").strip()
+            new_location = (request.form.get("location") or location).strip()
+
+            if not name:
+                error = "Name is required."
+            elif not new_location:
+                error = "Location is required."
+            else:
+                try:
+                    add_item(barcode, name, new_location)
+                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Saved {name} (+1)", msgtype="ok"))
+                except Exception as e:
+                    error = str(e)
+
+    items = get_inventory()
+    return render_template(
+        "resolve_barcode.html",
+        barcode=barcode,
+        items=items,
+        error=error,
+        zone=zone,
+        shelf=shelf,
+        location=location,
+    )
+
+
+# ============================================================
+# SECTION: Routes — Remove + Move
+# ============================================================
+
+@app.route("/remove-one", methods=["POST"])
+def remove_one_route():
+    # Pull zone/shelf from the remove form action querystring so redirects land back
+    # on the same kitchen scanning location you were using.
+    zone = request.args.get("zone") or _selected_zone_shelf()[0]
+    shelf_raw = request.args.get("shelf")
+    try:
+        shelf = int(shelf_raw) if shelf_raw is not None else _selected_zone_shelf()[1]
+    except Exception:
+        shelf = _selected_zone_shelf()[1]
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect(_home_url(zone, shelf, focus="remove", msg="Barcode required", msgtype="danger"))
+
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect(_home_url(zone, shelf, focus="remove", msg="Item not found", msgtype="danger"))
+
+    remove_one(barcode)
+    return redirect(_home_url(zone, shelf, focus="remove", msg=f"Removed {item[1]} (-1)", msgtype="danger"))
+
+
+@app.route("/move")
+def move_page():
+    zone, shelf, loc_map = _selected_zone_shelf()
+    location = _build_location(zone, shelf, loc_map)
+    status_html = _page_status_html()
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <div class="card">
+        <h2>Move Location</h2>
+        {status_html}
+        <div class="muted">Pick the new location, then scan the item you want to move.</div>
+        <div class="row"><b>New target:</b> <span class="chip">{location}</span></div>
+        <div class="row">{_zone_buttons(zone, shelf, loc_map)}</div>
+        {_shelf_selector(zone, shelf, loc_map)}
+
+        <form method="post" action="/move-scan?zone={zone.replace(' ', '%20')}&shelf={shelf}">
+          <div class="fieldRow">
+            <input type="text" name="barcode" placeholder="Scan item to move" autofocus>
+            <button class="btn btn-wide" type="submit">Scan</button>
+          </div>
+        </form>
+
+        <div class="row">
+          <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Back</a>
+        </div>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/move-scan", methods=["POST"])
+def move_scan():
+    zone, shelf, loc_map = _selected_zone_shelf()
+    new_location = _build_location(zone, shelf, loc_map)
+
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect(f"/kitchen/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Barcode%20required")
+
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect(f"/kitchen/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=danger&msg=Item%20not%20found")
+
+    current_location = item[2]
+    name = item[1]
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <div class="card">
+        <h2>Confirm Move</h2>
+        <div class="row"><b>{name}</b></div>
+        <div class="row muted">From: <span class="chip">{current_location}</span></div>
+        <div class="row muted">To: <span class="chip">{new_location}</span></div>
+
+        <form method="post" action="/move-save?zone={zone.replace(' ', '%20')}&shelf={shelf}">
+          <input type="hidden" name="barcode" value="{barcode}">
+          <input type="hidden" name="new_location" value="{new_location}">
+          <div class="fieldRow">
+            <button class="btn btn-wide" type="submit">Move</button>
+            <a class="btn" href="/move?zone={zone.replace(' ', '%20')}&shelf={shelf}">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/move-save", methods=["POST"])
+def move_save():
+    zone, shelf, _loc_map = _selected_zone_shelf()
+    barcode = (request.form.get("barcode", "") or "").strip()
+    new_location = (request.form.get("new_location", "") or "").strip()
+
+    move_location(barcode, new_location)
+    return redirect(
+        f"/kitchen/move?zone={zone.replace(' ', '%20')}&shelf={shelf}&msgtype=ok&msg=Moved%20item%20to%20{new_location.replace(' ', '%20')}"
+    )
+
+
+# ============================================================
+# SECTION: Routes — Inventory (search/filter/thresholds/stats)
+# ============================================================
+
+@app.route("/inventory")
+def inventory_page():
+    status_html = _page_status_html()
+    loc_map = _locations_map()
+
+    q = (request.args.get("q", "") or "").strip().lower()
+    zone_filter = (request.args.get("zone", "All") or "All").strip()
+
+    items = get_inventory()
+
+    def matches(row):
+        barcode, name, location, qty, low = row
+        if q and (q not in name.lower()) and (q not in barcode.lower()):
+            return False
+        if zone_filter != "All":
+            if not str(location).startswith(zone_filter):
+                return False
+        return True
+
+    filtered = [r for r in items if matches(r)]
+
+    zone_options = "<option value='All'>All</option>"
+    for z in sorted(loc_map.keys()):
+        sel = "selected" if z == zone_filter else ""
+        zone_options += f"<option value='{z}' {sel}>{z}</option>"
+
+    rows = ""
+    for barcode, name, location, qty, low in filtered:
+        qty = int(qty)
+        low = int(low) if low is not None else 0
+
+        if qty == 0:
+            qty_cell = f"<span class='qty-zero'>{qty}</span>"
+        elif low > 0 and qty <= low:
+            qty_cell = f"<span class='qty-low'>{qty}</span>"
+        else:
+            qty_cell = str(qty)
+
+        low_cell = str(low) if low else "-"
+
+        rows += f"""
+        <tr>
+          <td>{name}</td>
+          <td>{location}</td>
+          <td>{qty_cell}</td>
+          <td>{low_cell}</td>
+          <td>
+            <form class="inline" method="post" action="/inventory-remove">
+              <input type="hidden" name="barcode" value="{barcode}">
+              <button class="btn btn-danger">-1</button>
+            </form>
+
+            <form class="inline" method="get" action="/stats">
+              <input type="hidden" name="barcode" value="{barcode}">
+              <button class="btn btn-warn">Stats</button>
+            </form>
+
+            <form class="inline" method="post" action="/threshold-set">
+              <input type="hidden" name="barcode" value="{barcode}">
+              <input class="mono" style="width:86px;" type="number" min="0" name="threshold" value="{low}" title="Low threshold">
+              <button class="btn">Set</button>
+            </form>
+
+            <a class="btn" href="/edit?barcode={barcode}">Edit</a>
+
+            <form class="inline" method="post" action="/inventory-delete">
+              <input type="hidden" name="barcode" value="{barcode}">
+              <button class="btn btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        """
+
+    export_txt = "/export/inventory.txt"
+    print_view = "/print/inventory"
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Inventory</h1><div class="sub">Search + filter by zone • Yellow = low stock • Red = out</div></div>
+        <a class="btn" href="/">Home</a>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <div class="fieldRow">
+          <a class="btn btn-wide" href="/low-stock">View Low Stock</a>
+          <a class="btn btn-wide" href="{export_txt}">Export as Text</a>
+          <a class="btn btn-wide" href="{print_view}">Print / Save as PDF</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Search</h2>
+        <form method="get" action="/inventory">
+          <div class="fieldRow">
+            <input type="text" name="q" placeholder="Search by name or barcode" value="{request.args.get('q','')}">
+            <select name="zone">{zone_options}</select>
+            <button class="btn btn-wide" type="submit">Apply</button>
+            <a class="btn" href="/inventory">Clear</a>
+          </div>
+        </form>
+        <div class="muted row">Showing {len(filtered)} of {len(items)} items</div>
+      </div>
+
+      <div class="card">
+        <table>
+          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th>Actions</th></tr>
+          {rows if rows else "<tr><td colspan='5' class='muted'>No results.</td></tr>"}
+        </table>
+      </div>
+
+    </div></div>
+    """
+
+
+@app.route("/threshold-set", methods=["POST"])
+def threshold_set():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    thr = (request.form.get("threshold", "0") or "0").strip()
+    try:
+        thr_i = int(thr)
+    except Exception:
+        thr_i = 0
+    if thr_i < 0:
+        thr_i = 0
+
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+
+    set_low_threshold(barcode, thr_i)
+    item = get_item_by_barcode(barcode)
+    name = item[1] if item else "item"
+    return redirect(f"/kitchen/inventory?msgtype=ok&msg=Set%20low%20threshold%20for%20{name.replace(' ', '%20')}")
+
+
+@app.route("/inventory-remove", methods=["POST"])
+def inventory_remove():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
+
+    remove_one(barcode)
+    return redirect(f"/kitchen/inventory?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20(-1)")
+
+
+@app.route("/inventory-delete", methods=["POST"])
+def inventory_delete():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
+
+    delete_item(barcode)
+    return redirect(f"/kitchen/inventory?msgtype=danger&msg=Deleted%20{item[1].replace(' ', '%20')}")
+
+
+@app.route("/edit")
+def edit_item_page():
+    barcode = (request.args.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
+    _, name, location, qty, low = item
+    status_html = _page_status_html()
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Edit Item</h1><div class="sub">Update name</div></div>
+        <a class="btn" href="/inventory">Back</a>
+      </header>
+      {status_html}
+      <div class="card">
+        <form method="post" action="/edit-save">
+          <input type="hidden" name="barcode" value="{barcode}">
+          <div class="fieldRow" style="margin-bottom:14px;">
+            <label style="color:var(--muted);font-size:14px;">Item Name</label>
+          </div>
+          <div class="fieldRow">
+            <input type="text" name="name" value="{name}" placeholder="Item name" required>
+            <button class="btn btn-wide" type="submit">Save</button>
+          </div>
+          <div class="muted" style="margin-top:10px;">Barcode: <span class="chip mono">{barcode}</span> &nbsp; Location: <span class="chip">{location}</span></div>
+        </form>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/edit-save", methods=["POST"])
+def edit_item_save():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    new_name = (request.form.get("name", "") or "").strip()
+    if not barcode or not new_name:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Name%20required")
+    try:
+        update_item_name(barcode, new_name)
+        return redirect(f"/kitchen/inventory?msgtype=ok&msg=Renamed%20to%20{new_name.replace(' ', '%20')}")
+    except Exception as e:
+        return redirect(f"/kitchen/inventory?msgtype=danger&msg=Error%3A%20{str(e).replace(' ', '%20')}")
+
+
+# ============================================================
+# SECTION: Routes — Low Stock + Stats
+# ============================================================
+
+@app.route("/low-stock")
+def low_stock_page():
+    zone, shelf, _loc_map = _selected_zone_shelf()
+    status_html = _page_status_html()
+    rows = ""
+    items = get_low_stock()
+
+    for barcode, name, location, qty, low in items:
+        rows += f"""
+        <tr>
+          <td>{name}</td>
+          <td>{location}</td>
+          <td><span class="qty-low">{int(qty)}</span></td>
+          <td>{int(low)}</td>
+          <td>
+            <a class="btn btn-warn" href="/stats?barcode={barcode}">Stats</a>
+          </td>
+        </tr>
+        """
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Low Stock</h1><div class="sub">Items where 0 &lt; qty ≤ low threshold</div></div>
+        <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Back</a>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <table>
+          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th></th></tr>
+          {rows if rows else "<tr><td colspan='5' class='muted'>Nothing is currently low.</td></tr>"}
+        </table>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/stats")
+def stats_page():
+    barcode = (request.args.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Barcode%20required")
+
+    stats = get_item_stats(barcode)
+    if not stats.get("found"):
+        return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
+
+    name = stats["name"]
+    location = stats["location"]
+    qty = stats["quantity"]
+    low = stats["low_threshold"]
+    adds_28 = stats["adds_28"]
+    rem_28 = stats["removes_28"]
+    per_week = stats["per_week"]
+    days_left = stats["est_days_left"]
+
+    days_left_text = f"{days_left} days" if days_left is not None else "Not enough data yet"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Stats</h1><div class="sub">Last 28 days (simple local math)</div></div>
+        <div class="fieldRow">
+          <a class="btn" href="/inventory">Back</a>
+          <a class="btn" href="/">Home</a>
+        </div>
+      </header>
+
+      <div class="card">
+        <h2>{name}</h2>
+        <div class="muted">Barcode: <span class="chip mono">{barcode}</span></div>
+        <div class="row">
+          <div class="muted">Location <span class="chip">{location}</span></div>
+          <div class="muted">Qty <span class="chip">{qty}</span></div>
+          <div class="muted">Low threshold <span class="chip">{low if low else 0}</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Consumption (last 28 days)</h2>
+        <div class="row muted">Adds: <span class="chip">{adds_28}</span> Removes: <span class="chip">{rem_28}</span></div>
+        <div class="row muted">Estimated removes per week: <span class="chip">{per_week}</span></div>
+        <div class="row muted">Estimated days left (based on removes/day): <span class="chip">{days_left_text}</span></div>
+        <div class="muted">Tip: This becomes more accurate after you've used it for a few weeks.</div>
+      </div>
+    </div></div>
+    """
+
+
+# ============================================================
+# SECTION: Routes — Grocery List
+# ============================================================
+
+@app.route("/grocery-list")
+def grocery_list_page():
+    status_html = _page_status_html()
+    items = get_grocery_list()
+
+    export_txt = "/export/grocery.txt"
+    print_view = "/print/grocery"
+    share_view = "/share/grocery"
+
+    lis = ""
+    for row in items:
+        barcode = row[0]
+        name = row[1]
+        lis += f"""
+        <li style="margin: 10px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span>{name}</span>
+          <form class="inline" method="post" action="/grocery-remove">
+            <input type="hidden" name="barcode" value="{barcode}">
+            <button class="btn btn-danger">Remove</button>
+          </form>
+        </li>
+        """
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Grocery List</h1><div class="sub">Items that hit 0 quantity</div></div>
+        <a class="btn" href="/">Home</a>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <div class="fieldRow">
+          <a class="btn btn-wide" href="{export_txt}">Export as Text</a>
+          <a class="btn btn-wide" href="{print_view}">Print / Save as PDF</a>
+        </div>
+        <div class="muted row">Tip: On your phone, "Print / Save as PDF" creates an offline shopping list.</div>
+      </div>
+
+      <div class="card">
+        <h2>List</h2>
+        <ul style="padding-left: 18px; margin: 0;">
+          {lis if lis else "<li class='muted'>Nothing on the grocery list right now.</li>"}
+        </ul>
+      </div>
+
+    </div></div>
+    """
+
+
+@app.route("/grocery-remove", methods=["POST"])
+def grocery_remove():
+    barcode = (request.form.get("barcode", "") or "").strip()
+    if not barcode:
+        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Barcode%20required")
+
+    item = get_item_by_barcode(barcode)
+    if not item:
+        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Item%20not%20found")
+
+    delete_grocery_only(barcode)
+    return redirect(
+        f"/grocery-list?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
+    )
+
+
+# ============================================================
+# SECTION: Routes — Tools (backup/restore/locations/debug)
+# ============================================================
+
+@app.route("/tools")
+def tools_page():
+    status_html = _page_status_html()
+    locs = get_locations()
+
+    rows = ""
+    for l in locs:
+        name = l["name"]
+        has_shelves = "Yes" if bool(l["has_shelves"]) else "No"
+        rows += f"""
+        <tr>
+          <td>{name}</td>
+          <td>{has_shelves}</td>
+          <td>
+            <form class="inline" method="post" action="/locations-delete">
+              <input type="hidden" name="name" value="{name}">
+              <button class="btn btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        """
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Tools</h1><div class="sub">Backup / Restore / Locations / Debug</div></div>
+        <a class="btn" href="/">Home</a>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <h2>Backup</h2>
+        <div class="muted">Downloads your current inventory database.</div>
+        <div class="row"><a class="btn btn-wide" href="/backup">Download Backup</a></div>
+      </div>
+
+      <div class="card">
+        <h2>Restore</h2>
+        <div class="muted">Upload an inventory.db backup file. After restore, restart the app/service.</div>
+        <form method="post" action="/restore" enctype="multipart/form-data">
+          <div class="fieldRow">
+            <input type="file" name="dbfile" accept=".db">
+            <button class="btn btn-wide btn-danger" type="submit">Restore</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Locations</h2>
+        <div class="muted">Add zones here so you never edit code to add a new pantry/cabinet/etc.</div>
+
+        <form method="post" action="/locations-add">
+          <div class="fieldRow">
+            <input type="text" name="name" placeholder="New location name (ex: Snack Cabinet)" required>
+            <select name="has_shelves">
+              <option value="1">Has shelves (shows Shelf 1-4)</option>
+              <option value="0">No shelves</option>
+            </select>
+            <button class="btn btn-wide" type="submit">Add</button>
+          </div>
+        </form>
+
+        <div class="row"></div>
+
+        <table>
+          <tr><th>Name</th><th>Has shelves?</th><th>Action</th></tr>
+          {rows if rows else "<tr><td colspan='3' class='muted'>No locations found.</td></tr>"}
+        </table>
+
+        <div class="muted row">Deleting a location here does NOT delete existing items; it only removes the button/filter option.</div>
+      </div>
+
+      <div class="card">
+        <h2>Debug</h2>
+        <div class="muted">View recent scan events (adds/removes/moves) for troubleshooting.</div>
+        <div class="fieldRow">
+          <a class="btn btn-wide" href="/debug/events">View Event Log</a>
+          <a class="btn btn-wide" href="/export/events.txt">Export Events</a>
+        </div>
+      </div>
+
+    </div></div>
+    """
+
+
+@app.route("/locations-add", methods=["POST"])
+def locations_add():
+    name = (request.form.get("name", "") or "").strip()
+    has_shelves = (request.form.get("has_shelves", "0") or "0").strip()
+    hs = True if has_shelves == "1" else False
+
+    add_location(name, hs)
+    return redirect(f"/kitchen/tools?msgtype=ok&msg=Added%20location%20{name.replace(' ', '%20')}")
+
+
+@app.route("/locations-delete", methods=["POST"])
+def locations_delete():
+    name = (request.form.get("name", "") or "").strip()
+    delete_location(name)
+    return redirect(f"/kitchen/tools?msgtype=danger&msg=Deleted%20location%20{name.replace(' ', '%20')}")
+
+
+@app.route("/backup")
+def backup_db():
+    if not os.path.exists(DB_PATH):
+        return redirect("/kitchen/tools?msgtype=danger&msg=Database%20not%20found")
+    return send_file(DB_PATH, as_attachment=True, download_name="inventory.db")
+
+
+@app.route("/restore", methods=["POST"])
+def restore_db():
+    f = request.files.get("dbfile")
+    if not f:
+        return redirect("/kitchen/tools?msgtype=danger&msg=No%20file%20selected")
+
+    f.save(UPLOAD_TMP)
+
+    try:
+        if os.path.getsize(UPLOAD_TMP) < 1000:
+            os.remove(UPLOAD_TMP)
+            return redirect("/kitchen/tools?msgtype=danger&msg=Uploaded%20file%20looks%20invalid")
+    except Exception:
+        pass
+
+    try:
+        shutil.copy2(UPLOAD_TMP, DB_PATH)
+        os.remove(UPLOAD_TMP)
+    except Exception:
+        return redirect("/kitchen/tools?msgtype=danger&msg=Restore%20failed")
+
+    return redirect("/kitchen/tools?msgtype=ok&msg=Restore%20complete%20-%20restart%20the%20app")
+
+
+# ============================================================
+# SECTION: Routes — Debug Event Log
+# ============================================================
+
+@app.route("/debug/events")
+def debug_events():
+    status_html = _page_status_html()
+    limit = (request.args.get("limit", "200") or "200").strip()
+    try:
+        limit_i = int(limit)
+    except Exception:
+        limit_i = 200
+    if limit_i < 20:
+        limit_i = 20
+    if limit_i > 2000:
+        limit_i = 2000
+
+    rows = ""
+    events = get_event_log(limit_i)
+    for e in events:
+        created_at = e["created_at"]
+        barcode = e["barcode"]
+        etype = e["event_type"]
+        delta = e["delta"]
+        source = e["source"]
+        dclass = "qty-low" if int(delta) > 0 else ("qty-zero" if int(delta) < 0 else "muted")
+        rows += f"""
+        <tr>
+          <td class="mono">{created_at}</td>
+          <td class="mono">{barcode}</td>
+          <td>{etype}</td>
+          <td><span class="{dclass}">{delta}</span></td>
+          <td class="muted">{source}</td>
+        </tr>
+        """
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Event Log</h1><div class="sub">Most recent events (debug)</div></div>
+        <div class="fieldRow">
+          <a class="btn" href="/tools">Back</a>
+          <a class="btn" href="/export/events.txt">Export</a>
+        </div>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <form method="get" action="/debug/events">
+          <div class="fieldRow">
+            <span class="muted">Show last</span>
+            <input class="mono" style="width:120px;" type="number" name="limit" min="20" max="2000" value="{limit_i}">
+            <span class="muted">events</span>
+            <button class="btn" type="submit">Apply</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <table>
+          <tr><th>Time</th><th>Barcode</th><th>Type</th><th>Δ</th><th>Source</th></tr>
+          {rows if rows else "<tr><td colspan='5' class='muted'>No events yet.</td></tr>"}
+        </table>
+      </div>
+    </div></div>
+    """
+
+
+# ============================================================
+# SECTION: Routes — Export + QR + Print
+# ============================================================
+
+@app.route("/share/grocery")
+def share_grocery():
+    if qrcode is None:
+        return f"""
+        {_styles()}
+        <div class="wrap"><div class="container">
+          <header>
+            <div><h1>Send Grocery List to Phone</h1><div class="sub">QR code</div></div>
+            <a class="btn" href="/grocery-list">Back</a>
+          </header>
+
+          <div class="card">
+            <div class="muted">QR feature is not installed.</div>
+            <div class="muted">Fix:</div>
+            <pre style="white-space:pre-wrap;">cd ~/kitchen_inventory
+source venv/bin/activate
+pip install qrcode[pil]</pre>
+          </div>
+        </div></div>
+        """
+
+    base_url = _get_base_url()
+    share_url = base_url + "/grocery-list"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Send Grocery List to Phone</h1><div class="sub">Scan this with your phone camera</div></div>
+        <a class="btn" href="/grocery-list">Back</a>
+      </header>
+
+      <div class="card" style="text-align:center;">
+        <div style="display:inline-block; background:#fff; padding:10px; border-radius:14px;">
+          <img alt="QR" src="/qr?path=/grocery-list" style="width:180px; height:180px;">
+        </div>
+
+        <div class="row"></div>
+
+        <div class="muted">If QR doesn't work, open this link on your phone:</div>
+        <div class="chip" style="user-select:all; display:inline-block; margin-top:10px;">{share_url}</div>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/export/grocery.txt")
+def export_grocery_txt():
+    items = get_grocery_list()
+    lines = ["StockPi Grocery List", "==================", ""]
+    if not items:
+        lines.append("(Empty)")
+    else:
+        for row in items:
+            lines.append(f"- {row[1]}")
+    content = "\n".join(lines) + "\n"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Export: Grocery List</h1><div class="sub">Plain text view</div></div>
+        <div class="fieldRow">
+          <a class="btn" href="/">Home</a>
+          <a class="btn" href="/grocery-list">Back</a>
+          <a class="btn" href="/export/grocery.raw">Download .txt</a>
+        </div>
+      </header>
+
+      <div class="card">
+        <pre style="white-space:pre-wrap;">{content}</pre>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/export/grocery.raw")
+def export_grocery_raw():
+    items = get_grocery_list()
+    lines = ["StockPi Grocery List", "==================", ""]
+    if not items:
+        lines.append("(Empty)")
+    else:
+        for row in items:
+            lines.append(f"- {row[1]}")
+    content = "\n".join(lines) + "\n"
+    return Response(content, mimetype="text/plain")
+
+
+# ------------------------------------------------------------
+# Inventory export (readable columns)
+# ------------------------------------------------------------
+@app.route("/export/inventory.txt")
+def export_inventory_txt():
+    items = get_inventory()
+
+    def cap(s, n):
+        s = (s or "").strip()
+        return s if len(s) <= n else (s[: n - 1] + "…")
+
+    NAME_W = 30
+    LOC_W = 22
+    QTY_W = 3
+
+    lines = []
+    lines.append("StockPi Inventory (Readable Export)")
+    lines.append("=================================")
+    lines.append("")
+    header = f"{'ITEM':<{NAME_W}}  {'LOCATION':<{LOC_W}}  {'QTY':>{QTY_W}}  {'LOW':>3}  BARCODE"
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    if not items:
+        lines.append("(Empty)")
+    else:
+        for barcode, name, location, qty, low in items:
+            low_i = int(low) if low else 0
+            lines.append(
+                f"{cap(name, NAME_W):<{NAME_W}}  {cap(location, LOC_W):<{LOC_W}}  {int(qty):>{QTY_W}}  {low_i:>3}  {barcode}"
+            )
+
+    content = "\n".join(lines) + "\n"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Export: Inventory</h1><div class="sub">Readable table</div></div>
+        <div class="fieldRow">
+          <a class="btn" href="/">Home</a>
+          <a class="btn" href="/inventory">Back</a>
+          <a class="btn" href="/export/inventory.raw">Download .txt</a>
+        </div>
+      </header>
+
+      <div class="card">
+        <pre class="mono" style="white-space:pre; overflow-x:auto;">{content}</pre>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/export/inventory.raw")
+def export_inventory_raw():
+    items = get_inventory()
+
+    def cap(s, n):
+        s = (s or "").strip()
+        return s if len(s) <= n else (s[: n - 1] + "…")
+
+    NAME_W = 30
+    LOC_W = 22
+    QTY_W = 3
+
+    lines = []
+    lines.append("StockPi Inventory (Readable Export)")
+    lines.append("=================================")
+    lines.append("")
+    header = f"{'ITEM':<{NAME_W}}  {'LOCATION':<{LOC_W}}  {'QTY':>{QTY_W}}  {'LOW':>3}  BARCODE"
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    if not items:
+        lines.append("(Empty)")
+    else:
+        for barcode, name, location, qty, low in items:
+            low_i = int(low) if low else 0
+            lines.append(
+                f"{cap(name, NAME_W):<{NAME_W}}  {cap(location, LOC_W):<{LOC_W}}  {int(qty):>{QTY_W}}  {low_i:>3}  {barcode}"
+            )
+
+    content = "\n".join(lines) + "\n"
+    return Response(content, mimetype="text/plain")
+
+
+# ------------------------------------------------------------
+# Export events (debug)
+# ------------------------------------------------------------
+@app.route("/export/events.txt")
+def export_events_txt():
+    limit = (request.args.get("limit", "500") or "500").strip()
+    try:
+        limit_i = int(limit)
+    except Exception:
+        limit_i = 500
+    if limit_i < 50:
+        limit_i = 50
+    if limit_i > 5000:
+        limit_i = 5000
+
+    events = get_event_log(limit_i)
+
+    lines = []
+    lines.append("StockPi Event Log (Debug Export)")
+    lines.append("================================")
+    lines.append("")
+    lines.append("time | barcode | type | delta | source")
+    lines.append("--------------------------------------")
+
+    for e in events:
+        lines.append(f"{e['created_at']} | {e['barcode']} | {e['event_type']} | {e['delta']} | {e['source']}")
+
+    content = "\n".join(lines) + "\n"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Export: Events</h1><div class="sub">Debug log (most recent first)</div></div>
+        <div class="fieldRow">
+          <a class="btn" href="/tools">Back</a>
+          <a class="btn" href="/export/events.raw?limit={limit_i}">Download .txt</a>
+        </div>
+      </header>
+
+      <div class="card">
+        <pre style="white-space:pre-wrap;" class="mono">{content}</pre>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/export/events.raw")
+def export_events_raw():
+    limit = (request.args.get("limit", "500") or "500").strip()
+    try:
+        limit_i = int(limit)
+    except Exception:
+        limit_i = 500
+    if limit_i < 50:
+        limit_i = 50
+    if limit_i > 5000:
+        limit_i = 5000
+
+    events = get_event_log(limit_i)
+
+    lines = []
+    lines.append("StockPi Event Log (Debug Export)")
+    lines.append("================================")
+    lines.append("")
+    lines.append("time | barcode | type | delta | source")
+    lines.append("--------------------------------------")
+
+    for e in events:
+        lines.append(f"{e['created_at']} | {e['barcode']} | {e['event_type']} | {e['delta']} | {e['source']}")
+
+    content = "\n".join(lines) + "\n"
+    return Response(content, mimetype="text/plain")
+
+
+@app.route("/print/grocery")
+def print_grocery():
+    items = get_grocery_list()
+    rows = ""
+    for row in items:
+        rows += f"<li style='margin:10px 0;font-size:20px;'>{row[1]}</li>"
+    if not rows:
+        rows = "<li style='margin:10px 0;font-size:20px;'>(Empty)</li>"
+
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <h1 style="margin-bottom:8px;">StockPi Grocery List</h1>
+      <div class="sub" style="margin-bottom:20px;">Print this page or save as PDF.</div>
+      <div class="card">
+        <ul style="padding-left:22px;">
+          {rows}
+        </ul>
+      </div>
+    </div></div>"""
+
+
+
+@app.route("/print/inventory")
+def print_inventory():
+    items = get_inventory()
+    rows = ""
+    for barcode, name, location, qty, low in items:
+        rows += f"""
+          <tr>
+            <td>{name}</td>
+            <td>{location}</td>
+            <td><b>{qty}</b></td>
+            <td class="muted">{low if low else 0}</td>
+            <td class="muted">{barcode}</td>
+          </tr>
+        """
+    if not rows:
+        rows = "<tr><td colspan='5'>(Empty)</td></tr>"
+
+    return f"""
+    {_styles()}
+    <div class="wrap"><div class="container">
+      <h1 style="margin-bottom:8px;">StockPi Inventory</h1>
+      <div class="sub" style="margin-bottom:14px;">Print this page or Save as PDF on your phone.</div>
+      <div class="card">
+        <table>
+          <tr>
+            <th>Item</th>
+            <th>Location</th>
+            <th>Qty</th>
+            <th>Low</th>
+            <th>Barcode</th>
+          </tr>
+          {rows}
+        </table>
+      </div>
+    </div></div>"""
+
+
+@app.route("/qr")
+def qr_png():
+    if qrcode is None:
+        return Response("QR feature requires: pip install qrcode[pil]", mimetype="text/plain", status=500)
+
+    path = (request.args.get("path") or "/").strip()
+    if not path.startswith("/"):
+        path = "/" + path
+
+    base = _get_base_url()
+    full_url = base + path
+
+    img = qrcode.make(full_url)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype="image/png")
+
+
+# ============================================================
+# SECTION: Main Runner
+# ============================================================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=APP_PORT, debug=False)
