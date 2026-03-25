@@ -176,21 +176,21 @@ THEMES = {
         "text": "#e5e7eb", "muted": "#9ca3af", "border": "#1f2937",
         "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
         "warn": "#fbbf24", "btn": "#131c29", "btnHover": "#1a2535",
-        "shadow": "rgba(0,0,0,.45)",
+        "shadow": "rgba(0,0,0,.45)", "input": "#0d1117",
     },
     "light": {
         "bg": "#f0f2f5", "panel": "#ffffff", "panel2": "#f7f9fc",
         "text": "#111827", "muted": "#6b7280", "border": "#d1d5db",
         "accent": "#2563eb", "good": "#059669", "bad": "#dc2626",
         "warn": "#d97706", "btn": "#e5e7eb", "btnHover": "#d1d5db",
-        "shadow": "rgba(0,0,0,.12)",
+        "shadow": "rgba(0,0,0,.12)", "input": "#f9fafb",
     },
     "dim": {
         "bg": "#1e2433", "panel": "#252d3d", "panel2": "#202840",
         "text": "#cdd5e0", "muted": "#7d8ea8", "border": "#334155",
         "accent": "#60a5fa", "good": "#34d399", "bad": "#f87171",
         "warn": "#fbbf24", "btn": "#2a3347", "btnHover": "#303d54",
-        "shadow": "rgba(0,0,0,.35)",
+        "shadow": "rgba(0,0,0,.35)", "input": "#181f2d",
     },
 }
 
