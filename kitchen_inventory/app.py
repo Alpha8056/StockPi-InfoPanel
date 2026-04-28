@@ -1095,7 +1095,7 @@ def grocery_remove():
 
     delete_grocery_only(barcode)
     return redirect(
-        f"/grocery-list?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
+        request.script_root + f"/grocery-list?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
     )
 
 
