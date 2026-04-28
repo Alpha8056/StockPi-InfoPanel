@@ -1087,15 +1087,15 @@ def grocery_list_page():
 def grocery_remove():
     barcode = (request.form.get("barcode", "") or "").strip()
     if not barcode:
-        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Barcode%20required")
+        return redirect("/kitchen/grocery-list?msgtype=danger&msg=Barcode%20required")
 
     item = get_item_by_barcode(barcode)
     if not item:
-        return redirect(request.script_root + "/grocery-list?msgtype=danger&msg=Item%20not%20found")
+        return redirect("/kitchen/grocery-list?msgtype=danger&msg=Item%20not%20found")
 
     delete_grocery_only(barcode)
     return redirect(
-        request.script_root + f"/grocery-list?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
+        f"/kitchen/grocery-list?msgtype=ok&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
     )
 
 
