@@ -261,7 +261,7 @@ def _sync_grocery(cur, item_id, qty):
 def get_item_by_barcode(barcode: str):
     """
     Returns:
-      (barcode, name, location, quantity, low_threshold)
+      (barcode, name, location, quantity, low_threshold, expiration_date)
     or None
 
     Supports alias barcodes.
@@ -279,7 +279,7 @@ def get_item_by_barcode(barcode: str):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT barcode, name, location, quantity, low_threshold
+            SELECT barcode, name, location, quantity, low_threshold, expiration_date
             FROM items
             WHERE barcode = ?;
             """,
@@ -288,7 +288,7 @@ def get_item_by_barcode(barcode: str):
         row = cur.fetchone()
         if not row:
             return None
-        return (row["barcode"], row["name"], row["location"], row["quantity"], row["low_threshold"])
+        return (row["barcode"], row["name"], row["location"], row["quantity"], row["low_threshold"], row["expiration_date"])
     finally:
         conn.close()
 
@@ -296,20 +296,20 @@ def get_item_by_barcode(barcode: str):
 def get_inventory():
     """
     Returns list of tuples:
-      (barcode, name, location, quantity, low_threshold)
+      (barcode, name, location, quantity, low_threshold, expiration_date)
     """
     conn = _connect()
     try:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT barcode, name, location, quantity, low_threshold
+            SELECT barcode, name, location, quantity, low_threshold, expiration_date
             FROM items
             ORDER BY name COLLATE NOCASE;
             """
         )
         rows = cur.fetchall()
-        return [(r["barcode"], r["name"], r["location"], r["quantity"], r["low_threshold"]) for r in rows]
+        return [(r["barcode"], r["name"], r["location"], r["quantity"], r["low_threshold"], r["expiration_date"]) for r in rows]
     finally:
         conn.close()
 
@@ -623,6 +623,73 @@ def get_low_stock():
         )
         rows = cur.fetchall()
         return [(r["barcode"], r["name"], r["location"], r["quantity"], r["low_threshold"]) for r in rows]
+    finally:
+        conn.close()
+
+
+# ============================================================
+# SECTION: Expiration Dates
+# ============================================================
+
+def update_item_expiration(barcode: str, expiration_date: str) -> None:
+    """
+    Sets (or clears, if expiration_date is blank) the expiration date for an item.
+    Expected format: YYYY-MM-DD (from an <input type=date>). Supports alias barcodes.
+    """
+    barcode = (barcode or "").strip()
+    if not barcode:
+        raise ValueError("Barcode required")
+
+    canonical = resolve_barcode(barcode)
+    if canonical:
+        barcode = canonical
+
+    expiration_date = (expiration_date or "").strip() or None
+
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE items SET expiration_date = ? WHERE barcode = ?;",
+            (expiration_date, barcode),
+        )
+        if cur.rowcount == 0:
+            raise ValueError("Item not found")
+        _log_event(cur, barcode, "set_expiration", delta=0, source="ui")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_expiring_items(days_ahead=3):
+    """
+    Returns list of tuples (barcode, name, location, quantity, expiration_date)
+    for items with an expiration date that has passed, is today, or falls
+    within `days_ahead` days from now. Ordered soonest/most-overdue first.
+    """
+    try:
+        days_ahead = int(days_ahead)
+    except Exception:
+        days_ahead = 3
+
+    cutoff = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT barcode, name, location, quantity, expiration_date
+            FROM items
+            WHERE expiration_date IS NOT NULL
+              AND expiration_date != ''
+              AND expiration_date <= ?
+            ORDER BY expiration_date ASC;
+            """,
+            (cutoff,),
+        )
+        rows = cur.fetchall()
+        return [(r["barcode"], r["name"], r["location"], r["quantity"], r["expiration_date"]) for r in rows]
     finally:
         conn.close()
 

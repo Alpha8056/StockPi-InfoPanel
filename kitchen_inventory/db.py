@@ -187,6 +187,9 @@ def _migrate(conn):
     # Ensure new column exists
     _ensure_column(conn, "items", "low_threshold", "low_threshold INTEGER NOT NULL DEFAULT 0")
 
+    # Ensure expiration date column exists
+    _ensure_column(conn, "items", "expiration_date", "expiration_date TEXT")
+
     # Ensure events table exists
     _ensure_events_table(conn)
 

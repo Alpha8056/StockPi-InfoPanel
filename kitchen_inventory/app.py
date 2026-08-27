@@ -8,6 +8,7 @@ import time
 import shutil
 import io
 import socket
+from datetime import date, datetime
 
 from flask import Flask, request, redirect, send_file, Response, url_for, render_template
 
@@ -51,6 +52,8 @@ from inventory import (
     get_grocery_list,
     lookup_name_by_barcode,
     update_item_name,
+    update_item_expiration,
+    get_expiring_items,
 
     # Smart / Debug
     set_low_threshold,
@@ -162,6 +165,11 @@ APP_PORT = 5000
 # ------------------------------------------------------------
 SHELVES = [1, 2, 3, 4]
 DEFAULT_SHELF = 1
+
+# ------------------------------------------------------------
+# SUBSECTION: Expiration Warning Window
+# ------------------------------------------------------------
+EXPIRATION_WARN_DAYS = int(os.environ.get("STOCKPI_EXPIRATION_WARN_DAYS", "3"))
 
 # ------------------------------------------------------------
 # SUBSECTION: Paths
@@ -286,6 +294,9 @@ def _styles():
       .qty-zero{ color:var(--danger); font-weight:900; }
       .qty-low{ color:var(--warn); font-weight:900; }
       .navRow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+      .twoCol{ display:grid; grid-template-columns: 1fr; gap:12px; }
+      @media (min-width: 860px){ .twoCol{ grid-template-columns: 1fr 1fr; } }
+      .exp-badge{ text-decoration:none; }
       form.inline{ display:inline; }
       .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
       @media (max-width:520px){ h1{font-size:24px;} .btn-wide{width:100%;} .zone-btn{min-width:46%;} }
@@ -352,6 +363,76 @@ def _page_status_html():
         return ""
     cls = "ok" if msgtype == "ok" else ("warn" if msgtype == "warn" else "danger")
     return f"<div id='statusBanner' class='status {cls}'>{msg}</div>"
+
+
+# ============================================================
+# SECTION: Expiration Helpers
+# ============================================================
+
+def _parse_date(s):
+    try:
+        return datetime.strptime((s or "").strip(), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _expiration_status(expiration_date):
+    """
+    Returns None if there's no date or it's outside the warning window.
+    Otherwise a dict: {date, days, level, label}
+      level: "expired" | "today" | "soon"
+      days: negative if passed, 0 if today, positive if upcoming
+    """
+    d = _parse_date(expiration_date)
+    if not d:
+        return None
+
+    delta = (d - date.today()).days
+    if delta > EXPIRATION_WARN_DAYS:
+        return None
+
+    if delta < 0:
+        level = "expired"
+        label = f"Expired {abs(delta)}d ago"
+    elif delta == 0:
+        level = "today"
+        label = "Expires today"
+    else:
+        level = "soon"
+        label = f"Expires in {delta}d"
+
+    return {"date": d, "days": delta, "level": level, "label": label}
+
+
+def _expiration_badge_html(expiration_date):
+    status = _expiration_status(expiration_date)
+    if not status:
+        return ""
+    cls = "qty-zero" if status["level"] in ("expired", "today") else "qty-low"
+    icon = "⚠️" if status["level"] in ("expired", "today") else "⏰"
+    return f"<span class='{cls}' title='{status['label']}'>{icon} {status['label']}</span>"
+
+
+def _expiring_summary():
+    """
+    Returns (items, urgent) where items is the list from get_expiring_items()
+    and urgent is True if any item is expired or due today.
+    """
+    items = get_expiring_items(EXPIRATION_WARN_DAYS)
+    urgent = any(
+        (_expiration_status(it[4]) or {}).get("level") in ("expired", "today")
+        for it in items
+    )
+    return items, urgent
+
+
+def _expiring_nav_html():
+    items, urgent = _expiring_summary()
+    if not items:
+        return ""
+    icon = "⚠️" if urgent else "⏰"
+    btn_cls = "btn-danger" if urgent else "btn-warn"
+    return f'<div class="row"><a class="btn exp-badge {btn_cls}" href="/expiring">{icon} {len(items)} Expiring</a></div>'
 
 
 # ============================================================
@@ -466,6 +547,7 @@ def home():
       </header>
 
       {status_html}
+      {_expiring_nav_html()}
 
       <div class="card">
         <h2>Location</h2>
@@ -498,8 +580,7 @@ def home():
       <div class="navRow">
         <a class="btn btn-wide" href="/move?zone={zone.replace(' ', '%20')}&shelf={shelf}">Move Location</a>
         <a class="btn btn-wide" href="/inventory">Inventory</a>
-        <a class="btn btn-wide" href="/grocery-list">Grocery List</a>
-        <a class="btn btn-wide" href="/low-stock?zone={zone.replace(' ', '%20')}&shelf={shelf}">Low Stock</a>
+        <a class="btn btn-wide" href="/grocery-list">Grocery &amp; Low Stock</a>
         <a class="btn btn-wide" href="/tools">Tools</a>
       </div>
 
@@ -519,7 +600,8 @@ def scan():
     item = get_item_by_barcode(barcode)
     if item:
         increment_existing(barcode)
-        return redirect(_home_url(zone, shelf, focus='scan', msg=f"Added {item[1]} (+1)", msgtype="ok"))
+        new_qty = int(item[3]) + 1
+        return redirect(_home_url(zone, shelf, focus='scan', msg=f"{item[1]} +1({new_qty})", msgtype="ok"))
 
     # Unknown barcode → go to resolver UI (alias or new item)
     return redirect("/kitchen" + url_for("resolve_barcode_page", barcode=barcode, zone=zone, shelf=shelf))
@@ -533,7 +615,7 @@ def new_item():
     location = (request.form.get("location", "") or "").strip()
 
     add_item(barcode, name, location)
-    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Saved {name} (+1)", msgtype="ok"))
+    return redirect(_home_url(zone, shelf, focus='scan', msg=f"{name} +1(1)", msgtype="ok"))
 
 
 # ============================================================
@@ -555,7 +637,8 @@ def resolve_barcode_page():
         increment_existing(canonical)
         item = get_item_by_barcode(canonical)
         name = item[1] if item else canonical
-        return redirect(_home_url(zone, shelf, focus='scan', msg=f"Added {name} (+1)", msgtype="ok"))
+        new_qty = int(item[3]) if item else "?"
+        return redirect(_home_url(zone, shelf, focus='scan', msg=f"{name} +1({new_qty})", msgtype="ok"))
 
     error = None
 
@@ -573,13 +656,15 @@ def resolve_barcode_page():
                     increment_existing(canonical_barcode)
                     item = get_item_by_barcode(canonical_barcode)
                     name = item[1] if item else canonical_barcode
-                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Linked + Added {name} (+1)", msgtype="ok"))
+                    new_qty = int(item[3]) if item else "?"
+                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Linked: {name} +1({new_qty})", msgtype="ok"))
                 except Exception as e:
                     error = str(e)
 
         elif action == "new":
             name = (request.form.get("name") or "").strip()
             new_location = (request.form.get("location") or location).strip()
+            expiration_date = (request.form.get("expiration_date") or "").strip()
 
             if not name:
                 error = "Name is required."
@@ -588,7 +673,9 @@ def resolve_barcode_page():
             else:
                 try:
                     add_item(barcode, name, new_location)
-                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"Saved {name} (+1)", msgtype="ok"))
+                    if expiration_date:
+                        update_item_expiration(barcode, expiration_date)
+                    return redirect(_home_url(zone, shelf, focus='scan', msg=f"{name} +1(1)", msgtype="ok"))
                 except Exception as e:
                     error = str(e)
 
@@ -627,7 +714,8 @@ def remove_one_route():
         return redirect(_home_url(zone, shelf, focus="remove", msg="Item not found", msgtype="danger"))
 
     remove_one(barcode)
-    return redirect(_home_url(zone, shelf, focus="remove", msg=f"Removed {item[1]} (-1)", msgtype="danger"))
+    new_qty = max(int(item[3]) - 1, 0)
+    return redirect(_home_url(zone, shelf, focus="remove", msg=f"{item[1]} -1({new_qty})", msgtype="danger"))
 
 
 @app.route("/move")
@@ -727,7 +815,7 @@ def inventory_page():
     items = get_inventory()
 
     def matches(row):
-        barcode, name, location, qty, low = row
+        barcode, name, location, qty, low, expiration_date = row
         if q and (q not in name.lower()) and (q not in barcode.lower()):
             return False
         if zone_filter != "All":
@@ -743,7 +831,7 @@ def inventory_page():
         zone_options += f"<option value='{z}' {sel}>{z}</option>"
 
     rows = ""
-    for barcode, name, location, qty, low in filtered:
+    for barcode, name, location, qty, low, expiration_date in filtered:
         qty = int(qty)
         low = int(low) if low is not None else 0
 
@@ -755,6 +843,7 @@ def inventory_page():
             qty_cell = str(qty)
 
         low_cell = str(low) if low else "-"
+        exp_cell = _expiration_badge_html(expiration_date) or (expiration_date or "-")
 
         rows += f"""
         <tr>
@@ -762,6 +851,7 @@ def inventory_page():
           <td>{location}</td>
           <td>{qty_cell}</td>
           <td>{low_cell}</td>
+          <td>{exp_cell}</td>
           <td>
             <form class="inline" method="post" action="/inventory-remove">
               <input type="hidden" name="barcode" value="{barcode}">
@@ -804,7 +894,8 @@ def inventory_page():
 
       <div class="card">
         <div class="fieldRow">
-          <a class="btn btn-wide" href="/low-stock">View Low Stock</a>
+          <a class="btn btn-wide" href="/grocery-list">Grocery &amp; Low Stock</a>
+          <a class="btn btn-wide" href="/expiring">Expiring Items</a>
           <a class="btn btn-wide" href="{export_txt}">Export as Text</a>
           <a class="btn btn-wide" href="{print_view}">Print / Save as PDF</a>
         </div>
@@ -825,8 +916,8 @@ def inventory_page():
 
       <div class="card">
         <table>
-          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th>Actions</th></tr>
-          {rows if rows else "<tr><td colspan='5' class='muted'>No results.</td></tr>"}
+          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th>Expires</th><th>Actions</th></tr>
+          {rows if rows else "<tr><td colspan='6' class='muted'>No results.</td></tr>"}
         </table>
       </div>
 
@@ -865,7 +956,8 @@ def inventory_remove():
         return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
 
     remove_one(barcode)
-    return redirect(f"/kitchen/inventory?msgtype=danger&msg=Removed%20{item[1].replace(' ', '%20')}%20(-1)")
+    new_qty = max(int(item[3]) - 1, 0)
+    return redirect(f"/kitchen/inventory?msgtype=danger&msg={item[1].replace(' ', '%20')}%20-1({new_qty})")
 
 
 @app.route("/inventory-delete", methods=["POST"])
@@ -890,13 +982,13 @@ def edit_item_page():
     item = get_item_by_barcode(barcode)
     if not item:
         return redirect("/kitchen/inventory?msgtype=danger&msg=Item%20not%20found")
-    _, name, location, qty, low = item
+    _, name, location, qty, low, expiration_date = item
     status_html = _page_status_html()
     return f"""
     {_styles()}{_auto_hide_banner_js()}
     <div class="wrap"><div class="container">
       <header>
-        <div><h1>Edit Item</h1><div class="sub">Update name</div></div>
+        <div><h1>Edit Item</h1><div class="sub">Update name &amp; expiration date</div></div>
         <a class="btn" href="/inventory">Back</a>
       </header>
       {status_html}
@@ -908,6 +1000,14 @@ def edit_item_page():
           </div>
           <div class="fieldRow">
             <input type="text" name="name" value="{name}" placeholder="Item name" required>
+          </div>
+          <div class="fieldRow" style="margin-top:14px;margin-bottom:14px;">
+            <label style="color:var(--muted);font-size:14px;">Expiration Date (optional)</label>
+          </div>
+          <div class="fieldRow">
+            <input type="date" name="expiration_date" value="{expiration_date or ''}">
+          </div>
+          <div class="fieldRow" style="margin-top:16px;">
             <button class="btn btn-wide" type="submit">Save</button>
           </div>
           <div class="muted" style="margin-top:10px;">Barcode: <span class="chip mono">{barcode}</span> &nbsp; Location: <span class="chip">{location}</span></div>
@@ -921,11 +1021,13 @@ def edit_item_page():
 def edit_item_save():
     barcode = (request.form.get("barcode", "") or "").strip()
     new_name = (request.form.get("name", "") or "").strip()
+    expiration_date = (request.form.get("expiration_date", "") or "").strip()
     if not barcode or not new_name:
         return redirect("/kitchen/inventory?msgtype=danger&msg=Name%20required")
     try:
         update_item_name(barcode, new_name)
-        return redirect(f"/kitchen/inventory?msgtype=ok&msg=Renamed%20to%20{new_name.replace(' ', '%20')}")
+        update_item_expiration(barcode, expiration_date)
+        return redirect(f"/kitchen/inventory?msgtype=ok&msg=Saved%20{new_name.replace(' ', '%20')}")
     except Exception as e:
         return redirect(f"/kitchen/inventory?msgtype=danger&msg=Error%3A%20{str(e).replace(' ', '%20')}")
 
@@ -936,42 +1038,8 @@ def edit_item_save():
 
 @app.route("/low-stock")
 def low_stock_page():
-    zone, shelf, _loc_map = _selected_zone_shelf()
-    status_html = _page_status_html()
-    rows = ""
-    items = get_low_stock()
-
-    for barcode, name, location, qty, low in items:
-        rows += f"""
-        <tr>
-          <td>{name}</td>
-          <td>{location}</td>
-          <td><span class="qty-low">{int(qty)}</span></td>
-          <td>{int(low)}</td>
-          <td>
-            <a class="btn btn-warn" href="/stats?barcode={barcode}">Stats</a>
-          </td>
-        </tr>
-        """
-
-    return f"""
-    {_styles()}{_auto_hide_banner_js()}
-    <div class="wrap"><div class="container">
-      <header>
-        <div><h1>Low Stock</h1><div class="sub">Items where 0 &lt; qty ≤ low threshold</div></div>
-        <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Back</a>
-      </header>
-
-      {status_html}
-
-      <div class="card">
-        <table>
-          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th></th></tr>
-          {rows if rows else "<tr><td colspan='5' class='muted'>Nothing is currently low.</td></tr>"}
-        </table>
-      </div>
-    </div></div>
-    """
+    # Low Stock now lives on the combined Grocery & Low Stock page.
+    return redirect("/grocery-list")
 
 
 @app.route("/stats")
@@ -1033,15 +1101,16 @@ def stats_page():
 
 @app.route("/grocery-list")
 def grocery_list_page():
+    zone, shelf, _loc_map = _selected_zone_shelf()
     status_html = _page_status_html()
-    items = get_grocery_list()
+    grocery_items = get_grocery_list()
+    low_items = get_low_stock()
 
     export_txt = "/export/grocery.txt"
     print_view = "/print/grocery"
-    share_view = "/share/grocery"
 
     lis = ""
-    for row in items:
+    for row in grocery_items:
         barcode = row[0]
         name = row[1]
         lis += f"""
@@ -1054,29 +1123,51 @@ def grocery_list_page():
         </li>
         """
 
+    low_rows = ""
+    for barcode, name, location, qty, low in low_items:
+        low_rows += f"""
+        <tr>
+          <td>{name}</td>
+          <td>{location}</td>
+          <td><span class="qty-low">{int(qty)}</span></td>
+          <td>{int(low)}</td>
+          <td>
+            <a class="btn btn-warn" href="/stats?barcode={barcode}">Stats</a>
+          </td>
+        </tr>
+        """
+
     return f"""
     {_styles()}{_auto_hide_banner_js()}
     <div class="wrap"><div class="container">
       <header>
-        <div><h1>Grocery List</h1><div class="sub">Items that hit 0 quantity</div></div>
-        <a class="btn" href="/">Home</a>
+        <div><h1>Grocery &amp; Low Stock</h1><div class="sub">Everything you need to restock, in one place</div></div>
+        <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Home</a>
       </header>
 
       {status_html}
 
-      <div class="card">
-        <div class="fieldRow">
-          <a class="btn btn-wide" href="{export_txt}">Export as Text</a>
-          <a class="btn btn-wide" href="{print_view}">Print / Save as PDF</a>
+      <div class="twoCol">
+        <div class="card">
+          <h2>Grocery List</h2>
+          <div class="muted">Items that hit 0 quantity</div>
+          <div class="fieldRow" style="margin-top:10px;">
+            <a class="btn" href="{export_txt}">Export</a>
+            <a class="btn" href="{print_view}">Print / PDF</a>
+          </div>
+          <ul style="padding-left: 18px; margin: 14px 0 0 0;">
+            {lis if lis else "<li class='muted'>Nothing on the grocery list right now.</li>"}
+          </ul>
         </div>
-        <div class="muted row">Tip: On your phone, "Print / Save as PDF" creates an offline shopping list.</div>
-      </div>
 
-      <div class="card">
-        <h2>List</h2>
-        <ul style="padding-left: 18px; margin: 0;">
-          {lis if lis else "<li class='muted'>Nothing on the grocery list right now.</li>"}
-        </ul>
+        <div class="card">
+          <h2>Low Stock</h2>
+          <div class="muted">Items where 0 &lt; qty &le; low threshold</div>
+          <table style="margin-top:10px;">
+            <tr><th>Item</th><th>Location</th><th>Qty</th><th>Low</th><th></th></tr>
+            {low_rows if low_rows else "<tr><td colspan='5' class='muted'>Nothing is currently low.</td></tr>"}
+          </table>
+        </div>
       </div>
 
     </div></div>
@@ -1097,6 +1188,59 @@ def grocery_remove():
     return redirect(
         f"/kitchen/grocery-list?msgtype=ok&msg=Removed%20{item[1].replace(' ', '%20')}%20from%20grocery%20list"
     )
+
+
+# ============================================================
+# SECTION: Routes — Expiring Items
+# ============================================================
+
+@app.route("/expiring")
+def expiring_page():
+    zone, shelf, _loc_map = _selected_zone_shelf()
+    status_html = _page_status_html()
+    items = get_expiring_items(EXPIRATION_WARN_DAYS)
+
+    rows = ""
+    for barcode, name, location, qty, expiration_date in items:
+        status = _expiration_status(expiration_date) or {}
+        level = status.get("level", "soon")
+        cls = "qty-zero" if level in ("expired", "today") else "qty-low"
+        label = status.get("label", "")
+        rows += f"""
+        <tr>
+          <td>{name}</td>
+          <td>{location}</td>
+          <td>{int(qty)}</td>
+          <td>{expiration_date}</td>
+          <td><span class="{cls}">{label}</span></td>
+          <td><a class="btn" href="/edit?barcode={barcode}">Edit</a></td>
+        </tr>
+        """
+
+    return f"""
+    {_styles()}{_auto_hide_banner_js()}
+    <div class="wrap"><div class="container">
+      <header>
+        <div><h1>Expiring Items</h1><div class="sub">Expired, due today, or within {EXPIRATION_WARN_DAYS} days</div></div>
+        <a class="btn" href="{_home_href(zone, shelf, focus='scan')}">Home</a>
+      </header>
+
+      {status_html}
+
+      <div class="card">
+        <table>
+          <tr><th>Item</th><th>Location</th><th>Qty</th><th>Date</th><th>Status</th><th></th></tr>
+          {rows if rows else "<tr><td colspan='6' class='muted'>Nothing expiring soon.</td></tr>"}
+        </table>
+      </div>
+    </div></div>
+    """
+
+
+@app.route("/api/expiring-count")
+def api_expiring_count():
+    items, urgent = _expiring_summary()
+    return {"count": len(items), "urgent": urgent}
 
 
 # ============================================================
@@ -1427,7 +1571,7 @@ def export_inventory_txt():
     if not items:
         lines.append("(Empty)")
     else:
-        for barcode, name, location, qty, low in items:
+        for barcode, name, location, qty, low, expiration_date in items:
             low_i = int(low) if low else 0
             lines.append(
                 f"{cap(name, NAME_W):<{NAME_W}}  {cap(location, LOC_W):<{LOC_W}}  {int(qty):>{QTY_W}}  {low_i:>3}  {barcode}"
@@ -1477,7 +1621,7 @@ def export_inventory_raw():
     if not items:
         lines.append("(Empty)")
     else:
-        for barcode, name, location, qty, low in items:
+        for barcode, name, location, qty, low, expiration_date in items:
             low_i = int(low) if low else 0
             lines.append(
                 f"{cap(name, NAME_W):<{NAME_W}}  {cap(location, LOC_W):<{LOC_W}}  {int(qty):>{QTY_W}}  {low_i:>3}  {barcode}"
@@ -1590,7 +1734,7 @@ def print_grocery():
 def print_inventory():
     items = get_inventory()
     rows = ""
-    for barcode, name, location, qty, low in items:
+    for barcode, name, location, qty, low, expiration_date in items:
         rows += f"""
           <tr>
             <td>{name}</td>
