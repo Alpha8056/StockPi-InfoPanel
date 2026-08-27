@@ -741,7 +741,7 @@ def get_item_stats(barcode: str, days=28):
     if not item:
         return {"found": False}
 
-    _barcode, name, location, qty, low = item
+    _barcode, name, location, qty, low, _expiration_date = item
     qty = int(qty)
     low = int(low) if low else 0
 
