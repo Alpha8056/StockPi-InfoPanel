@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Home</title>
+
+<style>
+:root{
+  --bg:#0f1115;
+  --panel:#151922;
+  --panel2:#101521;
+  --text:#e7e9ee;
+  --muted:#a8b0c2;
+  --border:#2a3142;
+  --btn:#1b2231;
+  --btnHover:#232c3f;
+  --shadow:rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  background: var(--bg);
+  color:var(--text);
+}
+
+.wrap{
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  padding:18px;
+}
+
+.container{
+  width:100%;
+  max-width:560px;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+/* BIG CLOCK HEADER */
+.clockCard{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:26px 18px;
+  text-align:center;
+  box-shadow:0 10px 30px var(--shadow);
+}
+
+.time{
+  font-size:56px;
+  font-weight:900;
+  letter-spacing:1px;
+}
+.date{
+  margin-top:8px;
+  font-size:18px;
+  color:var(--muted);
+  font-weight:700;
+}
+
+/* HUGE BUTTON CARDS */
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--border);
+  border-radius:22px;
+  box-shadow:0 10px 30px var(--shadow);
+}
+
+.btn{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:8px;
+  text-decoration:none;
+  color:var(--text);
+  padding:32px 24px;
+  min-height:150px;
+  border-radius:22px;
+  background:var(--btn);
+  border:1px solid var(--border);
+  transition:background .15s ease, transform .05s ease;
+}
+
+.btn:active{
+  transform:translateY(2px);
+  background:var(--btnHover);
+}
+
+.btnTitle{
+  font-size:28px;
+  font-weight:900;
+}
+
+.btnDesc{
+  font-size:16px;
+  color:var(--muted);
+}
+
+/* SYSTEM CARD */
+.systemRow{
+  display:flex;
+  gap:14px;
+  padding:18px;
+}
+
+.sysBtn{
+  flex:1;
+  text-align:center;
+  padding:18px;
+  border-radius:18px;
+  background:var(--btn);
+  border:1px solid var(--border);
+  font-weight:800;
+  cursor:pointer;
+  color:var(--text);
+  font-size:16px;
+  font-family:inherit;
+}
+
+.footer{
+  text-align:center;
+  color:var(--muted);
+  font-size:12px;
+  padding-top:6px;
+}
+
+/* Expiring items badge on the Kitchen Inventory tile */
+.expBadge{
+  position:absolute;
+  top:12px;
+  right:12px;
+  padding:8px 12px;
+  border-radius:999px;
+  background:rgba(247,201,72,0.16);
+  border:1px solid rgba(247,201,72,0.45);
+  color:#f7c948;
+  font-weight:800;
+  font-size:14px;
+  text-decoration:none;
+  display:none;
+}
+.expBadge.urgent{
+  background:rgba(255,77,77,0.16);
+  border-color:rgba(255,77,77,0.55);
+  color:#ff4d4d;
+}
+
+@media (max-width: 420px) {
+  .systemRow{ flex-direction:column; }
+  .time{ font-size:42px; }
+  .btnTitle{ font-size:22px; }
+}
+
+/* Weather sections on launcher */
+#weatherSection{ display:flex; flex-direction:column; gap:18px; }
+.wxCard{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:20px;
+  box-shadow:0 10px 30px var(--shadow);
+}
+.wxTitle{ font-size:18px; font-weight:900; margin-bottom:10px; }
+.wxTemp{ font-size:36px; font-weight:900; line-height:1; }
+.wxCond{ font-size:16px; font-weight:700; color:var(--muted); }
+.wxSub{ color:var(--muted); font-size:14px; margin-top:6px; }
+.wxTableWrap{ overflow-x:auto; margin-top:10px; }
+.wxTable{ width:100%; border-collapse:collapse; }
+.wxTable th,.wxTable td{ padding:8px 10px; border-bottom:1px solid var(--border); font-size:14px; text-align:left; }
+.wxTable th{ color:var(--muted); font-weight:900; }
+.wxTable tr:last-child td{ border-bottom:none; }
+.wxAlertRow{ padding:10px 0; border-top:1px solid var(--border); }
+.wxAlertRow:first-of-type{ border-top:none; }
+.wxAlertHead{ font-weight:900; }
+.wxForecastRow{ padding:10px 0; border-top:1px solid var(--border); }
+.wxForecastRow:first-of-type{ border-top:none; }
+.wxForecastHead{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.wxForecastName{ font-weight:900; font-size:16px; }
+.wxForecastTemp{ font-size:20px; font-weight:900; }
+.wxDetail{ font-size:12px; color:var(--muted); margin-top:4px; }
+.wxRadarWrap{ border-radius:12px; overflow:hidden; border:1px solid var(--border); margin-top:10px; }
+.wxStorm{ border-color:rgba(245,158,11,.45) !important; }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+<a href="/panel/settings" style="position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:12px;background:var(--btn);border:1px solid var(--border);color:var(--text);text-decoration:none;font-weight:800;font-size:15px;z-index:999;display:flex;align-items:center;gap:8px;">⚙️ Settings</a>
+<div class="container">
+
+  <div class="clockCard">
+    <div class="time" id="time">--:--</div>
+    <div class="date" id="date">---</div>
+  </div>
+
+  <div class="card" id="kitchenCard" style="position:relative;">
+    <a class="btn" href="/kitchen/">
+      <div class="btnTitle">Kitchen Inventory</div>
+      <div class="btnDesc">Scan • Stock • Grocery list</div>
+    </a>
+    <a class="expBadge" id="expBadge" href="/kitchen/expiring"></a>
+  </div>
+
+  <div class="card" id="panelCard">
+    <a class="btn" href="/panel/">
+      <div class="btnTitle">Info Panel</div>
+      <div class="btnDesc">Weather • Network • RF • Alerts</div>
+    </a>
+  </div>
+
+  <div class="card">
+    <div class="systemRow">
+      <form method="post" action="/system/restart" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn" onclick="return confirm('Restart the apps?')">Restart Apps</button>
+      </form>
+      <form method="post" action="/system/update" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn" onclick="return confirm('Pull latest from GitHub and restart?')">Update</button>
+      </form>
+      <form method="post" action="/system/reboot" style="flex:1;margin:0;">
+        <button type="submit" class="sysBtn" onclick="return confirm('Reboot the Pi?')">Reboot Pi</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="weatherSection"></div>
+
+  <div class="footer" id="hostline"></div>
+
+</div>
+</div>
+
+<script>
+let timeFormat = '24hr';
+
+function tick(){
+  const d=new Date();
+  let timeStr;
+  if(timeFormat === '12hr'){
+    const h = d.getHours() % 12 || 12;
+    const m = String(d.getMinutes()).padStart(2,'0');
+    const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
+    timeStr = h + ':' + m + ' ' + ampm;
+  } else {
+    timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  document.getElementById('time').textContent = timeStr;
+  document.getElementById('date').textContent=
+    d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
+}
+tick(); setInterval(tick,1000);
+document.getElementById('hostline').textContent=location.host;
+
+function esc(s){
+  return String(s??'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function buildWeather(d){
+  const wx = d.weather || {};
+  let html = '';
+  for(const section of (d.weather_sections || [])){
+    if(section === 'current'){
+      html += `<div class="wxCard"><div class="wxTitle">Weather (${esc(wx.location)})</div>`;
+      if(wx.ok){
+        html += `<div class="wxTemp">${esc(wx.temp)} <span class="wxCond">${esc(wx.condition)}</span></div>
+          <div class="wxSub">Feels like: <b>${esc(wx.feels)}</b> &bull; High/Low: <b>${esc(wx.hi)}</b>/<b>${esc(wx.lo)}</b> &bull; Precip: <b>${esc(wx.precip)}</b></div>
+          <div class="wxSub">Updated: ${esc(wx.updated)}</div>`;
+      } else {
+        html += `<div class="wxSub">Weather unavailable.</div>`;
+      }
+      html += `</div>`;
+    }
+    else if(section === 'hourly' && d.hourly && d.hourly.length){
+      html += `<div class="wxCard"><div class="wxTitle">Hourly Forecast (Next 12 Hours)</div>
+        <div class="wxTableWrap"><table class="wxTable">
+          <thead><tr><th>Time</th><th>Temp</th><th>Condition</th><th>Precip</th><th>Wind</th></tr></thead>
+          <tbody>`;
+      for(const r of d.hourly)
+        html += `<tr><td>${esc(r.time)}</td><td><b>${esc(r.temp)}</b></td><td>${esc(r.cond)}</td><td>${esc(r.precip)}</td><td>${esc(r.wind)}</td></tr>`;
+      html += `</tbody></table></div></div>`;
+    }
+    else if(section === 'alerts'){
+      const alerts = d.alerts || [];
+      html += `<div class="wxCard"><div class="wxTitle">Severe Weather &amp; Alerts</div>`;
+      if(alerts.length){
+        for(const a of alerts)
+          html += `<div class="wxAlertRow"><div class="wxAlertHead">${esc(a.headline)}</div>
+            <div class="wxSub">${esc(a.when)}</div>
+            <div style="margin-top:6px">${esc(a.desc)}</div></div>`;
+      } else {
+        html += `<div class="wxSub">No active alerts.</div>`;
+      }
+      html += `</div>`;
+    }
+    else if(section === 'forecast' && d.forecast && d.forecast.length){
+      html += `<div class="wxCard"><div class="wxTitle">Tomorrow's Forecast</div>`;
+      for(const p of d.forecast)
+        html += `<div class="wxForecastRow">
+          <div class="wxForecastHead">
+            <div class="wxForecastName">${esc(p.name)}</div>
+            <div class="wxForecastTemp">${esc(p.temp)}</div>
+          </div>
+          <div class="wxSub">${esc(p.cond)}</div>
+          <div class="wxSub">Precip: <b>${esc(p.precip)}</b> &bull; Wind: <b>${esc(p.wind)}</b></div>
+          <div class="wxDetail">${esc(p.detail)}</div>
+        </div>`;
+      html += `</div>`;
+    }
+    else if(section === 'radar' && d.radar_station){
+      html += `<div class="wxCard"><div class="wxTitle">Radar</div>
+        <div class="wxSub">Animated loop</div>
+        <div class="wxRadarWrap">
+          <img src="https://radar.weather.gov/ridge/standard/${esc(d.radar_station)}_loop.gif" alt="Radar" style="width:100%;display:block;" />
+        </div></div>`;
+    }
+  }
+  if(d.storm_banner){
+    html += `<div class="wxCard wxStorm"><div class="wxTitle">Storm Proximity</div>
+      <div style="margin-top:6px;font-weight:900">${esc(d.storm_banner)}</div></div>`;
+  }
+  return html;
+}
+
+async function loadConfig(){
+  try {
+    const r = await fetch('/panel/api/launcher');
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d.theme && typeof d.theme === 'object'){
+      const root = document.documentElement;
+      for(const [k, v] of Object.entries(d.theme))
+        root.style.setProperty(k, v);
+    }
+    if(d.time_format){ timeFormat = d.time_format; tick(); }
+    if(!d.show_kitchen_button)
+      document.getElementById('kitchenCard').style.display='none';
+    if(!d.show_info_panel_button)
+      document.getElementById('panelCard').style.display='none';
+    if(d.show_weather_on_launcher && d.weather_sections && d.weather_sections.length)
+      document.getElementById('weatherSection').innerHTML = buildWeather(d);
+  } catch(e){}
+}
+loadConfig();
+setInterval(loadConfig, 5 * 60 * 1000);
+
+async function loadExpiring(){
+  try {
+    const r = await fetch('/kitchen/api/expiring-count');
+    if(!r.ok) return;
+    const d = await r.json();
+    const badge = document.getElementById('expBadge');
+    if(!badge) return;
+    if(d.count > 0){
+      badge.textContent = (d.urgent ? '⚠️ ' : '⏰ ') + d.count + ' Expiring';
+      badge.classList.toggle('urgent', !!d.urgent);
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e){}
+}
+loadExpiring();
+setInterval(loadExpiring, 5 * 60 * 1000);
+</script>
+
+</body>
+</html>
