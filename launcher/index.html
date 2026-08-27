@@ -315,7 +315,7 @@ function buildWeather(d){
       html += `<div class="wxCard"><div class="wxTitle">Radar</div>
         <div class="wxSub">Animated loop</div>
         <div class="wxRadarWrap">
-          <img src="https://radar.weather.gov/ridge/standard/${esc(d.radar_station)}_loop.gif" alt="Radar" style="width:100%;display:block;" />
+          <img src="https://radar.weather.gov/ridge/standard/${esc(d.radar_station)}_loop.gif?t=${Date.now()}" alt="Radar" style="width:100%;display:block;" />
         </div></div>`;
     }
   }
