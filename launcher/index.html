@@ -129,6 +129,27 @@ body{
   padding-top:6px;
 }
 
+/* Expiring items badge on the Kitchen Inventory tile */
+.expBadge{
+  position:absolute;
+  top:12px;
+  right:12px;
+  padding:8px 12px;
+  border-radius:999px;
+  background:rgba(247,201,72,0.16);
+  border:1px solid rgba(247,201,72,0.45);
+  color:#f7c948;
+  font-weight:800;
+  font-size:14px;
+  text-decoration:none;
+  display:none;
+}
+.expBadge.urgent{
+  background:rgba(255,77,77,0.16);
+  border-color:rgba(255,77,77,0.55);
+  color:#ff4d4d;
+}
+
 @media (max-width: 420px) {
   .systemRow{ flex-direction:column; }
   .time{ font-size:42px; }
@@ -177,11 +198,12 @@ body{
     <div class="date" id="date">---</div>
   </div>
 
-  <div class="card" id="kitchenCard">
+  <div class="card" id="kitchenCard" style="position:relative;">
     <a class="btn" href="/kitchen/">
       <div class="btnTitle">Kitchen Inventory</div>
       <div class="btnDesc">Scan • Stock • Grocery list</div>
     </a>
+    <a class="expBadge" id="expBadge" href="/kitchen/expiring"></a>
   </div>
 
   <div class="card" id="panelCard">
@@ -325,6 +347,25 @@ async function loadConfig(){
 }
 loadConfig();
 setInterval(loadConfig, 5 * 60 * 1000);
+
+async function loadExpiring(){
+  try {
+    const r = await fetch('/kitchen/api/expiring-count');
+    if(!r.ok) return;
+    const d = await r.json();
+    const badge = document.getElementById('expBadge');
+    if(!badge) return;
+    if(d.count > 0){
+      badge.textContent = (d.urgent ? '⚠️ ' : '⏰ ') + d.count + ' Expiring';
+      badge.classList.toggle('urgent', !!d.urgent);
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e){}
+}
+loadExpiring();
+setInterval(loadExpiring, 5 * 60 * 1000);
 </script>
 
 </body>
