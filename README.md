@@ -16,3 +16,5 @@ Fresh install
 Update to the newest github push
   
       cd ~/StockPi-InfoPanel && git pull
+
+Stable: 328c8c4
